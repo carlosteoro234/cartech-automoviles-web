@@ -1,0 +1,1241 @@
+<!DOCTYPE html>
+<html lang="es-CO">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+  <meta name="theme-color" content="#000000" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black" />
+  <meta name="apple-mobile-web-app-title" content="Cartech" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <title>Cartech Automóviles | Gestión Cloud de Inventario, Peritaje, CRM, Capital y Liquidez</title>
+  <link rel="manifest" href="manifest.json" />
+  <link rel="stylesheet" href="styles.css" />
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+</head>
+<body>
+  <div class="app-layout">
+    <!-- Barra Lateral (Escritorio) -->
+    <aside class="sidebar">
+      <div class="brand">
+        <div class="cartech-logo-box">
+          <div class="cartech-logo-split">
+            <span class="cartech-logo-car">CAR</span>
+            <span class="cartech-logo-tech">TECH</span>
+          </div>
+          <span class="cartech-logo-sub">COMERCIALIZADORA DE VEHÍCULOS</span>
+        </div>
+        <span style="font-size: 11px; color: #60a5fa; font-weight: 600;">100% Cloud • PC &amp; Móvil</span>
+      </div>
+
+      <nav class="nav-sheets">
+        <div class="nav-section-label">Módulos de Cartech</div>
+        <button class="sheet-tab-btn active" onclick="switchSheet('inventario')" id="nav-inventario">
+          <span>🚙</span>
+          <span>Inventario y Capital</span>
+          <span class="sheet-badge" id="badge-inventario">0</span>
+        </button>
+        <button class="sheet-tab-btn" onclick="switchSheet('peritaje')" id="nav-peritaje">
+          <span>📋</span>
+          <span>Hojas de Peritaje</span>
+          <span class="sheet-badge" id="badge-peritaje">0</span>
+        </button>
+        <button class="sheet-tab-btn" onclick="switchSheet('prospectos')" id="nav-prospectos">
+          <span>👥</span>
+          <span>Prospectos (Venta/Compra)</span>
+          <span class="sheet-badge" id="badge-prospectos">0</span>
+        </button>
+        <button class="sheet-tab-btn" onclick="switchSheet('socios')" id="nav-socios">
+          <span>🤝</span>
+          <span>Socios y Capital</span>
+          <span class="sheet-badge" id="badge-socios">0</span>
+        </button>
+        <button class="sheet-tab-btn" onclick="switchSheet('gastos-propios')" id="nav-gastos-propios">
+          <span>🏦</span>
+          <span>Liquidez y Gastos</span>
+          <span class="sheet-badge" id="badge-gastos">0</span>
+        </button>
+
+        <div class="nav-section-label" style="margin-top: 10px;">Nube y Reportes</div>
+        <button class="sheet-tab-btn" onclick="switchSheet('dispositivos')" id="nav-dispositivos">
+          <span>☁️</span>
+          <span>Nube / Excel / App</span>
+        </button>
+      </nav>
+
+      <div class="sidebar-footer">
+        <div id="save-status-indicator" style="font-size: 12px; color: #34d399; text-align: center; padding: 7px; background: rgba(16, 185, 129, 0.12); border-radius: 6px; border: 1px solid rgba(16, 185, 129, 0.3);">
+          ☁️ Nube Cartech Activa
+        </div>
+        <button class="btn btn-success" onclick="exportToExcel()" style="width: 100%;">
+          📊 Descargar Excel (.xlsx)
+        </button>
+        <button class="btn btn-outline btn-sm" onclick="forceCloudSyncNow()" style="width: 100%;">
+          🔄 Forzar Sincronización Cloud
+        </button>
+        <button class="btn btn-danger-ghost btn-sm" onclick="clearDemoData()" style="width: 100%;">
+          🧹 Limpiar Base de Datos
+        </button>
+      </div>
+    </aside>
+
+    <!-- Contenido Principal -->
+    <main class="main-content">
+
+      <!-- ==========================================
+           HOJA 1: INVENTARIO DE VEHÍCULOS Y CAPITAL INVERTIDO
+           ========================================== -->
+      <section class="sheet-view active" id="sheet-inventario">
+        <div class="top-bar">
+          <div class="page-title">
+            <h2>Cartech Automóviles — Inventario Maestro y Capital en Tiempo Real</h2>
+            <p>Separación estricta de Capital Propio (Carlos) vs. Capital de Socios, peritaje y plantillas WhatsApp.</p>
+          </div>
+          <div class="top-actions">
+            <button class="btn btn-outline" onclick="forceCloudSyncNow()" id="btn-cloud-sync">☁️ Nube Sincronizada</button>
+            <button class="btn btn-outline" onclick="openMoneyLocationModal()">🏦 + Ubicación Dinero Libre</button>
+            <button class="btn btn-primary" onclick="openVehicleModal()">➕ Nuevo Vehículo</button>
+          </div>
+        </div>
+
+        <!-- KPIs Globales de Capital (Total, Propio Carlos, Socios, Liquidez Disponible) -->
+        <div class="kpi-grid" id="inventario-kpis"></div>
+
+        <!-- Desglose Individualizado de Capital Invertido (Carlos vs Cada Socio) -->
+        <div class="card-panel" style="margin-bottom: 20px;">
+          <div class="card-header">
+            <h3>💼 Desglose de Capital Invertido en Tiempo Real (Propio Carlos vs. Cada Socio)</h3>
+            <button class="btn btn-outline btn-sm" onclick="switchSheet('socios')">Ver Detalle de Socios →</button>
+          </div>
+          <div class="capital-breakdown-grid" id="inventory-capital-breakdown"></div>
+        </div>
+
+        <!-- PESTAÑAS RÁPIDAS POR ESTADO (Evita saturación visual) -->
+        <div class="status-tabs-bar" id="inventory-status-tabs"></div>
+
+        <!-- Barra de Búsqueda y Filtros Adicionales -->
+        <div class="filter-bar">
+          <div class="filter-group" style="flex: 2;">
+            <label>Buscar por Placa, Marca, Línea o Propietario</label>
+            <input type="text" id="filter-veh-search" placeholder="Ej: KLP-842, Mazda, Toyota, Carlos..." oninput="renderInventory()" />
+          </div>
+          <div class="filter-group">
+            <label>Filtrar por Estado</label>
+            <select id="filter-veh-status" onchange="setInventoryStatusTab(this.value)">
+              <option value="DISPONIBLES">🟢 Disponibles (Sin Vendidos)</option>
+              <option value="En Compra">🟣 En Compra</option>
+              <option value="Alistamiento">🟡 En Preparación / Alistamiento</option>
+              <option value="Publicado">🔵 Publicados (En Venta)</option>
+              <option value="Vendido">🏆 Vendidos (Liquidados)</option>
+              <option value="TODOS">📋 Todos los vehículos</option>
+            </select>
+          </div>
+          <div class="filter-group">
+            <label>Condición</label>
+            <select id="filter-veh-condicion" onchange="renderInventory()">
+              <option value="TODOS">Nuevos y Usados</option>
+              <option value="Usado">Usado</option>
+              <option value="Nuevo">Nuevo (0 km)</option>
+            </select>
+          </div>
+          <div class="filter-group">
+            <label>Alerta SOAT / Tecno</label>
+            <select id="filter-veh-docs" onchange="renderInventory()">
+              <option value="TODOS">Todos</option>
+              <option value="ALERTA">⚠️ Próximos a vencer o vencidos</option>
+            </select>
+          </div>
+        </div>
+
+        <!-- Tabla de Vehículos -->
+        <div class="card-panel">
+          <div class="card-header">
+            <h3 id="inventario-table-heading">Listado Maestro de Vehículos</h3>
+            <span id="inventario-count-label" style="font-size: 13px; color: var(--text-muted);"></span>
+          </div>
+          <div class="table-responsive">
+            <table>
+              <thead>
+                <tr>
+                  <th>Vehículo / Kilometraje</th>
+                  <th>Placa / Modelo</th>
+                  <th>Propietario</th>
+                  <th>SOAT / Tecno / Peritaje</th>
+                  <th>Estado Actual</th>
+                  <th>Costo Total y Capital (Carlos / Socios)</th>
+                  <th>Precio Venta / Publ.</th>
+                  <th>Ganancia Neta y Reparto</th>
+                  <th>Acciones y WhatsApp</th>
+                </tr>
+              </thead>
+              <tbody id="inventory-tbody"></tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <!-- ==========================================
+           HOJA 2: MÓDULO DE HOJA DE PERITAJE
+           ========================================== -->
+      <section class="sheet-view" id="sheet-peritaje">
+        <div class="top-bar">
+          <div class="page-title">
+            <h2>Hoja de Peritaje Técnico — Cartech Automóviles</h2>
+            <p>Evaluación estructurada de Estructura/Chasis, Pintura y Lámina, Motor, Suspensión/Frenos y Documentación.</p>
+          </div>
+          <div class="top-actions">
+            <button class="btn btn-outline" onclick="exportToExcel()">📊 Exportar Peritajes a Excel</button>
+          </div>
+        </div>
+
+        <div class="kpi-grid" id="peritaje-kpis"></div>
+
+        <div class="filter-bar">
+          <div class="filter-group" style="flex: 2;">
+            <label>Buscar Vehículo por Placa o Marca</label>
+            <input type="text" id="filter-peritaje-search" placeholder="Ej: KLP-842, Toyota, Mazda..." oninput="renderPeritajeSheet()" />
+          </div>
+          <div class="filter-group">
+            <label>Veredicto / Calificación Final</label>
+            <select id="filter-peritaje-veredicto" onchange="renderPeritajeSheet()">
+              <option value="TODOS">Todos los veredictos</option>
+              <option value="Excelente">🟢 Excelente</option>
+              <option value="Bueno">🔵 Bueno / Aceptable</option>
+              <option value="Regular">🟡 Regular</option>
+              <option value="Para reparar">🔴 Para reparar</option>
+              <option value="SIN_PERITAJE">⚪ Pendientes de peritaje</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="card-panel">
+          <div class="card-header">
+            <h3>📋 Estado de Peritaje por Vehículo en Inventario</h3>
+          </div>
+          <div class="table-responsive">
+            <table>
+              <thead>
+                <tr>
+                  <th>Vehículo / Placa</th>
+                  <th>Puntaje General / Veredicto</th>
+                  <th>Chasis / Estructura</th>
+                  <th>Mecánica / Motor</th>
+                  <th>Latonería y Pintura</th>
+                  <th>Interior / Vidrios / Llantas</th>
+                  <th>Fugas y Documentos</th>
+                  <th>Costo Est. Alistamiento</th>
+                  <th>Acciones e Informe PDF</th>
+                </tr>
+              </thead>
+              <tbody id="peritaje-tbody"></tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <!-- ==========================================
+           HOJA 3: MÓDULO DE PROSPECTOS (VENTA Y COMPRA + WHATSAPP)
+           ========================================== -->
+      <section class="sheet-view" id="sheet-prospectos">
+        <div class="top-bar">
+          <div class="page-title">
+            <h2>CRM de Prospectos de Venta y Compra + Plantillas WhatsApp</h2>
+            <p>Gestiona clientes interesados en comprar tus vehículos y dueños ofreciendo carros para captación de inventario.</p>
+          </div>
+          <div class="top-actions">
+            <button class="btn btn-outline" onclick="exportToExcel()">📊 Exportar CRM</button>
+            <button class="btn btn-primary" onclick="openProspectModal(null, 'VENTA')">➕ Prospecto de Venta (Cliente)</button>
+            <button class="btn btn-success" onclick="openProspectModal(null, 'COMPRA')">🚗 Prospecto de Compra (Captación)</button>
+          </div>
+        </div>
+
+        <!-- Selector Principal: Prospectos de Venta vs Prospectos de Compra -->
+        <div class="prospect-type-switcher" id="prospect-type-switcher"></div>
+
+        <!-- KPIs de Prospectos -->
+        <div class="kpi-grid" id="prospectos-kpis"></div>
+
+        <!-- Pestañas rápidas por Estado del Prospecto -->
+        <div class="status-tabs-bar" id="prospects-status-tabs"></div>
+
+        <!-- Filtros de Prospectos -->
+        <div class="filter-bar">
+          <div class="filter-group" style="flex: 2;">
+            <label>Buscar por Nombre, Teléfono, Placa, Vehículo o Notas</label>
+            <input type="text" id="filter-prosp-search" placeholder="Ej: Andrés, 310..., Mazda 3, KLP-842..." oninput="renderProspectsSheet()" />
+          </div>
+          <div class="filter-group" id="group-filter-prosp-vehiculo">
+            <label>Filtrar por Vehículo de Nuestro Inventario</label>
+            <select id="filter-prosp-vehiculo" onchange="renderProspectsSheet()">
+              <option value="TODOS">Todos los vehículos</option>
+            </select>
+          </div>
+        </div>
+
+        <!-- Tabla CRM de Prospectos -->
+        <div class="card-panel">
+          <div class="card-header">
+            <h3 id="prospectos-table-title">👥 Listado de Prospectos</h3>
+            <span id="prospectos-count-label" style="font-size: 13px; color: var(--text-muted);"></span>
+          </div>
+          <div class="table-responsive">
+            <table>
+              <thead id="prospectos-thead"></thead>
+              <tbody id="prospectos-tbody"></tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <!-- ==========================================
+           HOJA 4: GESTIÓN DE SOCIOS, CAPITAL INVERTIDO POR SOCIO Y GANANCIAS
+           ========================================== -->
+      <section class="sheet-view" id="sheet-socios">
+        <div class="top-bar">
+          <div class="page-title">
+            <h2>Socios, Capital Invertido Individualizado y División de Ganancias</h2>
+            <p>Monitorea cuánto capital tiene invertido Carlos (Propio) y cada socio (Taty, Henry, Daniel, William, Jimmy, etc.) en tiempo real.</p>
+          </div>
+          <div class="top-actions">
+            <button class="btn btn-outline" onclick="exportToExcel()">📊 Exportar Excel</button>
+            <button class="btn btn-primary" onclick="openPartnerModal()">➕ Agregar Socio</button>
+          </div>
+        </div>
+
+        <div class="kpi-grid" id="socios-kpis"></div>
+
+        <!-- Desglose Individualizado en Hoja de Socios -->
+        <div class="card-panel">
+          <div class="card-header">
+            <h3>💰 Capital Invertido Activo porPersona (Propio Carlos vs. Socios en Tiempo Real)</h3>
+          </div>
+          <div class="capital-breakdown-grid" id="socios-capital-breakdown"></div>
+        </div>
+
+        <div class="card-panel">
+          <div class="card-header">
+            <h3>📇 Base de Datos de Socios Registrados</h3>
+            <button class="btn btn-primary btn-sm" onclick="openPartnerModal()">+ Nuevo Socio</button>
+          </div>
+          <div class="table-responsive">
+            <table>
+              <thead>
+                <tr>
+                  <th>Nombre del Socio</th>
+                  <th>Tipo de Socio</th>
+                  <th>Esquema de Ganancia</th>
+                  <th>Teléfono / Documento</th>
+                  <th>Carros Activos</th>
+                  <th>Capital Invertido Activo ($)</th>
+                  <th>Carros Vendidos</th>
+                  <th>Ganancia Acumulada (Vendidos)</th>
+                  <th>Acciones</th>
+                </tr>
+              </thead>
+              <tbody id="partners-db-tbody"></tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="card-panel">
+          <div class="card-header">
+            <h3>📊 Liquidación de Capital y Ganancias por Vehículo</h3>
+            <select id="filter-liquidacion-estado" onchange="renderPartnersSheet()" style="width: auto; min-width: 220px;">
+              <option value="TODOS">Todos los vehículos</option>
+              <option value="EN_PROCESO">🟢 En Inventario Activo (Capital Invertido)</option>
+              <option value="Vendido">🏆 Solo Vendidos (Liquidación Final)</option>
+            </select>
+          </div>
+          <div class="table-responsive">
+            <table>
+              <thead>
+                <tr>
+                  <th>Vehículo</th>
+                  <th>Estado / Días</th>
+                  <th>Costo Total</th>
+                  <th>Capital Carlos vs. Capital Socios</th>
+                  <th>Precio Venta</th>
+                  <th>Ganancia Neta Final</th>
+                  <th>Pago Ganancia a Socio(s)</th>
+                  <th>Ganancia Libre Carlos</th>
+                  <th>PDF Cuentas Socios</th>
+                </tr>
+              </thead>
+              <tbody id="settlements-tbody"></tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <!-- ==========================================
+           HOJA 5: UBICACIONES DE DINERO LIBRE (LIQUIDEZ) Y GASTOS PROPIOS
+           ========================================== -->
+      <section class="sheet-view" id="sheet-gastos-propios">
+        <div class="top-bar">
+          <div class="page-title">
+            <h2>Ubicaciones de Dinero Libre (Liquidez Disponible) y Gastos</h2>
+            <p>Controla tus saldos en Cuentas Bancarias y Efectivo Físico; cada gasto descuenta automáticamente del saldo seleccionado.</p>
+          </div>
+          <div class="top-actions">
+            <button class="btn btn-success" onclick="openMoneyLocationModal()">🏦 + Agregar Cuenta / Efectivo</button>
+            <button class="btn btn-primary" onclick="openOwnExpenseModal()">➕ Registrar Gasto (Descuenta Saldo)</button>
+          </div>
+        </div>
+
+        <!-- KPIs de Liquidez Disponible y Gastos -->
+        <div class="kpi-grid" id="liquidez-kpis"></div>
+
+        <!-- Gestor de Ubicaciones de Dinero Libre (Cuentas Bancarias y Efectivo Físico) -->
+        <div class="card-panel">
+          <div class="card-header">
+            <div>
+              <h3>🏦 Ubicaciones de Dinero Libre (Liquidez Disponible Pendiente de Gasto)</h3>
+              <span style="font-size: 12.5px; color: var(--text-muted);">Cada vez que registras un gasto propio o gasto de vehículo, se descuenta automáticamente de la ubicación que elijas.</span>
+            </div>
+            <button class="btn btn-primary btn-sm" onclick="openMoneyLocationModal()">+ Nueva Cuenta o Efectivo Físico</button>
+          </div>
+          <div class="money-locations-grid" id="money-locations-container"></div>
+        </div>
+
+        <!-- Filtros de Gastos Propios por Semana, Mes o Año -->
+        <div class="filter-bar">
+          <div class="filter-group" style="min-width: 280px;">
+            <label>Filtrar Gastos por Período:</label>
+            <div class="period-tabs">
+              <button class="period-tab" id="tab-period-semana" onclick="setExpensePeriodMode('SEMANA')">📅 Semana</button>
+              <button class="period-tab active" id="tab-period-mes" onclick="setExpensePeriodMode('MES')">🗓️ Mes</button>
+              <button class="period-tab" id="tab-period-anio" onclick="setExpensePeriodMode('ANIO')">📆 Año</button>
+              <button class="period-tab" id="tab-period-todos" onclick="setExpensePeriodMode('TODOS')">Todos</button>
+            </div>
+          </div>
+
+          <div class="filter-group" id="period-picker-week-group" style="display: none;">
+            <label>Seleccionar Semana</label>
+            <input type="week" id="filter-exp-week" onchange="renderOwnExpenses()" />
+          </div>
+
+          <div class="filter-group" id="period-picker-month-group">
+            <label>Seleccionar Mes</label>
+            <input type="month" id="filter-exp-month" onchange="renderOwnExpenses()" />
+          </div>
+
+          <div class="filter-group" id="period-picker-year-group" style="display: none;">
+            <label>Seleccionar Año</label>
+            <select id="filter-exp-year" onchange="renderOwnExpenses()"></select>
+          </div>
+
+          <div class="filter-group">
+            <label>Categoría</label>
+            <select id="filter-exp-cat" onchange="renderOwnExpenses()">
+              <option value="TODAS">Todas las categorías</option>
+              <option value="Arriendo / Local">Arriendo / Local</option>
+              <option value="Publicidad / Redes">Publicidad / Redes</option>
+              <option value="Transporte / Combustible">Transporte / Combustible</option>
+              <option value="Servicios / Internet">Servicios / Internet</option>
+              <option value="Personal / Alimentación">Personal / Alimentación</option>
+              <option value="Impuestos / Contabilidad">Impuestos / Contabilidad</option>
+              <option value="Otros Gastos Propios">Otros Gastos Propios</option>
+            </select>
+          </div>
+
+          <div class="filter-group">
+            <label>Buscar Concepto</label>
+            <input type="text" id="filter-exp-search" placeholder="Buscar gasto..." oninput="renderOwnExpenses()" />
+          </div>
+        </div>
+
+        <div class="kpi-grid" id="gastos-propios-kpis"></div>
+
+        <div class="card-panel">
+          <div class="card-header">
+            <h3 id="own-expenses-table-title">Listado de Gastos Propios</h3>
+            <span id="own-expenses-count" style="font-size: 13px; color: var(--text-muted);"></span>
+          </div>
+          <div class="table-responsive">
+            <table>
+              <thead>
+                <tr>
+                  <th>Fecha</th>
+                  <th>Semana / Mes</th>
+                  <th>Concepto / Descripción</th>
+                  <th>Categoría</th>
+                  <th>Ubicación de Dinero (Origen)</th>
+                  <th>Valor ($)</th>
+                  <th>Acciones</th>
+                </tr>
+              </thead>
+              <tbody id="own-expenses-tbody"></tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <!-- ==========================================
+           HOJA 6: NUBE 100% (CERO LOCALHOST) & RESPALDO EXCEL
+           ========================================== -->
+      <section class="sheet-view" id="sheet-dispositivos">
+        <div class="top-bar">
+          <div class="page-title">
+            <h2>Sincronización 100% Cloud (PC & POCO F8 Ultra) y Exportación Excel</h2>
+            <p>Persistencia activa en la nube en tiempo real sin depender de localhost.</p>
+          </div>
+        </div>
+
+        <div class="kpi-grid">
+          <div class="card-panel" style="padding: 20px; margin-bottom: 0;">
+            <h3 style="margin-bottom: 10px; color: #34d399;">☁️ 1. Persistencia 100% en la Nube Activa</h3>
+            <p style="font-size: 13.5px; color: var(--text-muted); line-height: 1.6; margin-bottom: 12px;">
+              • Enlace oficial Cloud de <strong>Cartech Automóviles</strong>:<br/>
+              <a href="https://ornate-vacherin-b1aa01.netlify.app" target="_blank" style="color: #38bdf8; font-weight: 700; word-break: break-all;">https://ornate-vacherin-b1aa01.netlify.app</a><br/>
+              • Todo cambio que guardes desde tu <strong>POCO F8 Ultra</strong> o desde tu <strong>PC Windows</strong> se sincroniza en tiempo real en la nube.
+            </p>
+            <button class="btn btn-primary btn-sm" onclick="forceCloudSyncNow()">🔄 Sincronizar con la Nube Ahora</button>
+          </div>
+
+          <div class="card-panel" style="padding: 20px; margin-bottom: 0;">
+            <h3 style="margin-bottom: 10px; color: #60a5fa;">📱 2. Instalación en POCO F8 Ultra, iOS y Windows</h3>
+            <p style="font-size: 13.5px; color: var(--text-muted); line-height: 1.6; margin-bottom: 12px;">
+              • <strong>En tu POCO F8 Ultra (Chrome):</strong> Entra al enlace de arriba, toca el menú <strong>⋮</strong> y elige <em>"Instalar aplicación"</em>.<br/>
+              • <strong>En Windows:</strong> Usa <code>Iniciar_App_Escritorio.bat</code> o instala desde el navegador con el botón de abajo.
+            </p>
+            <button class="btn btn-outline btn-sm" onclick="triggerInstallPWA()">📲 Instalar App en este Dispositivo</button>
+          </div>
+
+          <div class="card-panel" style="padding: 20px; margin-bottom: 0;">
+            <h3 style="margin-bottom: 10px; color: #fbbf24;">📊 3. Descargar Libro de Excel (.xlsx) Completo</h3>
+            <p style="font-size: 13.5px; color: var(--text-muted); line-height: 1.6; margin-bottom: 14px;">
+              Genera un archivo Excel con 7 hojas: <em>Inventario, Peritajes, Prospectos CRM, Gastos Carros, Socios y Capital, Ubicaciones de Dinero Libre y Gastos Propios</em>.
+            </p>
+            <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+              <button class="btn btn-success btn-sm" onclick="exportToExcel()">📊 Exportar Excel (.xlsx)</button>
+              <button class="btn btn-outline btn-sm" onclick="exportBackupJSON()">⬇️ Respaldo (.json)</button>
+              <label class="btn btn-outline btn-sm" style="cursor: pointer;">
+                ⬆️ Restaurar (.json)
+                <input type="file" accept=".json" style="display: none;" onchange="importBackupJSON(event)" />
+              </label>
+            </div>
+          </div>
+        </div>
+      </section>
+
+    </main>
+
+    <!-- Barra Inferior Estilo Hojas de Excel (Escritorio) -->
+    <div class="excel-sheet-bar">
+      <div class="excel-tab active" id="excel-tab-inventario" onclick="switchSheet('inventario')">
+        📗 1_Inventario_y_Capital
+      </div>
+      <div class="excel-tab" id="excel-tab-peritaje" onclick="switchSheet('peritaje')">
+        📋 2_Hoja_de_Peritaje
+      </div>
+      <div class="excel-tab" id="excel-tab-prospectos" onclick="switchSheet('prospectos')">
+        👥 3_Prospectos_Venta_Compra
+      </div>
+      <div class="excel-tab" id="excel-tab-socios" onclick="switchSheet('socios')">
+        📘 4_Socios_y_Capital
+      </div>
+      <div class="excel-tab" id="excel-tab-gastos-propios" onclick="switchSheet('gastos-propios')">
+        🏦 5_Liquidez_y_Gastos
+      </div>
+      <div class="excel-tab" id="excel-tab-dispositivos" onclick="switchSheet('dispositivos')">
+        ☁️ 6_Nube_y_Excel
+      </div>
+    </div>
+
+    <!-- Barra de Navegación Inferior (Android / POCO F8 Ultra / iOS) -->
+    <nav class="mobile-bottom-nav">
+      <button class="mobile-nav-btn active" id="mob-inventario" onclick="switchSheet('inventario')">
+        <span class="icon">🚙</span>
+        <span>Inventario</span>
+      </button>
+      <button class="mobile-nav-btn" id="mob-peritaje" onclick="switchSheet('peritaje')">
+        <span class="icon">📋</span>
+        <span>Peritaje</span>
+      </button>
+      <button class="mobile-nav-btn" id="mob-prospectos" onclick="switchSheet('prospectos')">
+        <span class="icon">👥</span>
+        <span>Prospectos</span>
+      </button>
+      <button class="mobile-nav-btn" id="mob-socios" onclick="switchSheet('socios')">
+        <span class="icon">🤝</span>
+        <span>Socios</span>
+      </button>
+      <button class="mobile-nav-btn" id="mob-gastos-propios" onclick="switchSheet('gastos-propios')">
+        <span class="icon">🏦</span>
+        <span>Liquidez</span>
+      </button>
+    </nav>
+  </div>
+
+  <!-- =========================================================
+       MODAL 1: CREAR / EDITAR VEHÍCULO Y CAPITAL APORTADO
+       ========================================================= -->
+  <div class="modal-backdrop" id="modal-vehicle">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3 id="modal-vehicle-title">Registrar Vehículo en Inventario</h3>
+        <button class="btn btn-outline btn-sm" onclick="closeModal('modal-vehicle')">✕</button>
+      </div>
+      <form id="form-vehicle" onsubmit="saveVehicle(event)" class="modal-body">
+        <input type="hidden" id="veh-id" />
+
+        <div class="form-grid">
+          <div class="form-group">
+            <label>Condición *</label>
+            <select id="veh-condicion" required>
+              <option value="Usado">Usado</option>
+              <option value="Nuevo">Nuevo (0 km / Concesionario)</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Estado Actual *</label>
+            <select id="veh-estado" required onchange="updateVehiclePartnerPreview()">
+              <option value="En Compra">🟣 En Compra</option>
+              <option value="Alistamiento">🟡 En Preparación / Alistamiento</option>
+              <option value="Publicado">🔵 Publicado (Disponible)</option>
+              <option value="Vendido">🏆 Vendido (Liquidar Ganancia)</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Placa (Solo Alfanumérico) *</label>
+            <input type="text" id="veh-placa" placeholder="Ej: KLP-842" maxlength="10" required oninput="enforceAlphanumericPlate(this)" />
+          </div>
+        </div>
+
+        <div class="form-grid">
+          <div class="form-group">
+            <label>Filtrar por Marca (Catálogo Colombia)</label>
+            <select id="veh-catalogo-marca" onchange="onCatalogBrandChange()">
+              <option value="TODAS">🔍 Todas las marcas</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Seleccionar Línea / Referencia Rápida</label>
+            <select id="veh-catalogo-linea" onchange="onCatalogModelSelect()">
+              <option value="">-- Elige una referencia o escribe abajo --</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="form-grid">
+          <div class="form-group" style="flex: 2;">
+            <label>Marca y Línea *</label>
+            <input type="text" id="veh-marca" list="colombia-vehicles-datalist" placeholder="Escribe ej: Mazda 2, Spark GT, Logan, Corolla Cross..." required autocomplete="off" />
+            <datalist id="colombia-vehicles-datalist"></datalist>
+          </div>
+          <div class="form-group">
+            <label>Modelo (Año - Solo Números) *</label>
+            <input type="text" inputmode="numeric" id="veh-anio" list="anios-comunes-datalist" placeholder="Ej: 2023" maxlength="4" required oninput="enforceOnlyDigits(this, 4)" />
+            <datalist id="anios-comunes-datalist">
+              <option value="2027"></option>
+              <option value="2026"></option>
+              <option value="2025"></option>
+              <option value="2024"></option>
+              <option value="2023"></option>
+              <option value="2022"></option>
+              <option value="2021"></option>
+              <option value="2020"></option>
+              <option value="2019"></option>
+              <option value="2018"></option>
+              <option value="2017"></option>
+              <option value="2016"></option>
+              <option value="2015"></option>
+            </datalist>
+          </div>
+        </div>
+
+        <div class="form-grid">
+          <div class="form-group">
+            <label>Color del Vehículo (Solo Texto)</label>
+            <input type="text" id="veh-color" list="colores-comunes-datalist" placeholder="Ej: Blanco Perlado" oninput="enforceLettersAndSpaces(this)" />
+            <datalist id="colores-comunes-datalist">
+              <option value="Blanco Perlado"></option>
+              <option value="Blanco Nieve"></option>
+              <option value="Gris Platino"></option>
+              <option value="Gris Magnético"></option>
+              <option value="Plata"></option>
+              <option value="Negro Metalizado"></option>
+              <option value="Rojo Diamante"></option>
+              <option value="Azul"></option>
+            </datalist>
+          </div>
+          <div class="form-group">
+            <label>Kilometraje (km - Solo Números con puntos)</label>
+            <input type="text" inputmode="numeric" id="veh-kilometraje" placeholder="Ej: 32.500" oninput="formatCurrencyInput(this)" />
+          </div>
+        </div>
+
+        <div class="section-divider">
+          <h4>👤 Propietario y Documentación (SOAT y Tecnomecánica)</h4>
+          <div class="form-grid">
+            <div class="form-group">
+              <label>Nombre del Propietario (Solo Letras) *</label>
+              <input type="text" id="veh-propietario" placeholder="Nombre en tarjeta de propiedad" required oninput="enforceLettersAndSpaces(this)" />
+            </div>
+            <div class="form-group">
+              <label>Teléfono Propietario (Solo Números)</label>
+              <input type="text" inputmode="numeric" id="veh-prop-contacto" placeholder="Ej: 3001234567" maxlength="15" oninput="enforcePhoneDigits(this)" />
+            </div>
+            <div class="form-group">
+              <label>Vencimiento SOAT</label>
+              <input type="date" id="veh-soat" />
+            </div>
+            <div class="form-group">
+              <label>Vencimiento Tecnomecánica</label>
+              <input type="date" id="veh-tecno" />
+            </div>
+          </div>
+        </div>
+
+        <div class="section-divider">
+          <h4>💵 Valores de Compra y Venta (Formato es-CO con puntos de mil)</h4>
+          <div class="form-grid">
+            <div class="form-group">
+              <label>Precio de Compra ($) *</label>
+              <input type="text" inputmode="numeric" id="veh-precio-compra" placeholder="Ej: 78.000.000" required oninput="formatCurrencyInput(this); onVehiclePriceOrModeInput()" />
+            </div>
+            <div class="form-group">
+              <label>Precio Publicado / Lista ($)</label>
+              <input type="text" inputmode="numeric" id="veh-precio-publicado" placeholder="Ej: 89.990.000" oninput="formatCurrencyInput(this); updateVehiclePartnerPreview()" />
+            </div>
+            <div class="form-group">
+              <label>Precio Final de Venta ($)</label>
+              <input type="text" inputmode="numeric" id="veh-precio-venta" placeholder="Ej: 88.000.000" oninput="formatCurrencyInput(this); updateVehiclePartnerPreview()" />
+            </div>
+            <div class="form-group">
+              <label>Fecha de Ingreso / Compra</label>
+              <input type="date" id="veh-fecha-compra" required />
+            </div>
+            <div class="form-group">
+              <label>Fecha de Venta (Al cerrar)</label>
+              <input type="date" id="veh-fecha-venta" />
+            </div>
+          </div>
+        </div>
+
+        <div class="section-divider">
+          <h4>🤝 Participación de Socios y Aporte de Capital</h4>
+          <div class="form-grid">
+            <div class="form-group">
+              <label>Modalidad de Sociedad en este Carro</label>
+              <select id="veh-modalidad-socio" onchange="handlePartnerModeChange()">
+                <option value="PROPIO">100% Propio Carlos (Sin socios externos)</option>
+                <option value="INVERSIONISTA">Con Socio Inversionista (Ganancia 50% / 50%)</option>
+                <option value="NEGOCIO">Con Socios del Mismo Negocio (Dividido entre 2, 3 o más)</option>
+                <option value="COMBINADO">Inversionista (50%) + Socios de Negocio (50% restante)</option>
+              </select>
+            </div>
+
+            <div class="form-group" id="group-select-inversionista" style="display: none;">
+              <label>Seleccionar Socio Inversionista (50/50)</label>
+              <select id="veh-socio-inversionista" onchange="updateVehiclePartnerPreview()"></select>
+            </div>
+
+            <div class="form-group" id="group-cantidad-negocio" style="display: none;">
+              <label>¿Entre cuántos del negocio se divide? (Incluyéndote)</label>
+              <select id="veh-num-socios-negocio" onchange="onVehiclePriceOrModeInput()">
+                <option value="2">Entre 2 socios de negocio (50% c/u)</option>
+                <option value="3">Entre 3 socios de negocio (33.33% c/u)</option>
+                <option value="4">Entre 4 socios de negocio (25% c/u)</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="form-group" id="group-checkboxes-negocio" style="display: none; margin-top: 10px;">
+            <label>Selecciona el/los Socio(s) de Negocio que participan contigo:</label>
+            <div id="veh-socios-negocio-list" style="display: flex; flex-wrap: wrap; gap: 10px; padding: 8px 0;"></div>
+          </div>
+
+          <!-- Separación exacta del Capital Aportado para Compra -->
+          <div class="form-grid" style="margin-top: 10px; background: rgba(15, 23, 42, 0.55); padding: 12px; border-radius: var(--radius-sm); border: 1px solid var(--border-color);">
+            <div class="form-group">
+              <label>Capital de Compra Aportado por Carlos ($)</label>
+              <input type="text" inputmode="numeric" id="veh-capital-carlos" placeholder="Ej: 39.000.000" oninput="formatCurrencyInput(this); onManualCarlosCapitalInput()" />
+              <span class="input-hint">Cuánto pusiste tú de la compra del carro</span>
+            </div>
+            <div class="form-group">
+              <label>Capital de Compra Aportado por Socio(s) ($)</label>
+              <input type="text" inputmode="numeric" id="veh-capital-socios" placeholder="Ej: 39.000.000" readonly style="opacity: 0.85;" />
+              <span class="input-hint">Se calcula automáticamente (Compra - Capital Carlos)</span>
+            </div>
+            <div class="form-group" id="group-veh-money-location">
+              <label>¿Descontar Capital de Carlos de Dinero Libre?</label>
+              <select id="veh-money-location-id">
+                <option value="">-- No descontar / Ya descontado antes --</option>
+              </select>
+              <span class="input-hint">Opcional: resta tu aporte del saldo de esa cuenta/efectivo</span>
+            </div>
+          </div>
+
+          <div class="split-preview-box" id="veh-partner-preview" style="margin-top: 10px;"></div>
+        </div>
+
+        <div class="modal-footer" style="padding: 14px 0 0; border-top: 1px solid var(--border-color);">
+          <button type="button" class="btn btn-outline" onclick="closeModal('modal-vehicle')">Cancelar</button>
+          <button type="submit" class="btn btn-primary">💾 Guardar Vehículo en la Nube</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- =========================================================
+       MODAL 2: HOJA DE PERITAJE TÉCNICO DETALLADO POR PIEZA Y PORCENTAJES
+       ========================================================= -->
+  <div class="modal-backdrop" id="modal-peritaje">
+    <div class="modal-content" style="max-width: 980px;">
+      <div class="modal-header">
+        <div>
+          <h3 id="modal-peritaje-title">📋 Hoja de Peritaje Técnico Detallado — Cartech Automóviles</h3>
+          <span id="modal-peritaje-subtitle" style="font-size: 13px; color: var(--text-muted);"></span>
+        </div>
+        <div style="display: flex; gap: 8px;">
+          <button type="button" class="btn btn-success btn-sm" onclick="saveAndPrintPeritajeFromModal()">🖨️ Imprimir / PDF Peritaje</button>
+          <button type="button" class="btn btn-outline btn-sm" onclick="closeModal('modal-peritaje')">✕</button>
+        </div>
+      </div>
+      <form id="form-peritaje" onsubmit="saveVehiclePeritaje(event)" class="modal-body">
+        <input type="hidden" id="per-veh-id" />
+
+        <!-- Banner Superior: Puntaje General Ponderado y Barras por Categoría en Vivo -->
+        <div class="peritaje-score-banner" id="peritaje-live-score-banner"></div>
+        <div class="peritaje-cat-bars" id="peritaje-live-cat-bars"></div>
+
+        <!-- Contenedor compacto por ZONAS de Peritaje + Llantas de 10% en 10% + Costo daño ($) manual opcional -->
+        <div class="peritaje-zones-grid" id="peritaje-detailed-sections-container"></div>
+
+        <!-- Resumen de Total Costo de Daños / Alistamiento (Suma automática solo de lo digitado manualmente) -->
+        <div class="section-divider">
+          <h4>📄 Documentación, Total Costo de Daños (Manual) y Conclusión</h4>
+          <div class="form-grid">
+            <div class="form-group">
+              <label>Estado Documental, SOAT y RUNT *</label>
+              <select id="per-docs-estado" required>
+                <option value="Al día / Listo para traspaso">🟢 Al día / Listo para traspaso</option>
+                <option value="Pendiente SOAT / Tecno / Impuesto">🟡 Pendiente SOAT / Tecno / Impuesto</option>
+                <option value="Con Prenda / Limitación / Comparendos">🔴 Con Prenda / Limitación / Comparendos</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label>Detalle Documentación (Improntas, prenda, impuestos)</label>
+              <input type="text" id="per-docs-notas" placeholder="Ej: Libre de prenda, sin comparendos, improntas listas" />
+            </div>
+            <div class="form-group">
+              <label>Veredicto / Calificación Final *</label>
+              <select id="per-veredicto" required>
+                <option value="Excelente">🟢 Excelente (Óptimo 90% - 100%)</option>
+                <option value="Bueno">🔵 Bueno / Aceptable (75% - 89%)</option>
+                <option value="Regular">🟡 Regular (Aceptable 60% - 74%)</option>
+                <option value="Para reparar">🔴 Para reparar / Deficiente (&lt; 60%)</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="form-grid" style="margin-top: 10px;">
+            <div class="form-group">
+              <label>Total Costo de Daños / Alistamiento ($)</label>
+              <input type="text" inputmode="numeric" id="per-costo-estimado" placeholder="$ 0" readonly style="font-weight: 800; color: #fcd34d; background: rgba(15, 23, 42, 0.9);" />
+              <span class="input-hint">Suma automática de los campos opcionales "Costo daño ($)" que hayas digitado arriba ($ 0 si se dejan en blanco)</span>
+            </div>
+            <div class="form-group" style="flex: 2;">
+              <label>Observaciones Generales y Conclusión Técnica del Perito</label>
+              <input type="text" id="per-observaciones" placeholder="Ej: Vehículo asegurable al 100%, estructura original, detalles estéticos leves." />
+            </div>
+            <div class="form-group">
+              <label>Fecha del Peritaje</label>
+              <input type="date" id="per-fecha" required />
+            </div>
+          </div>
+        </div>
+
+        <div class="modal-footer" style="padding: 14px 0 0; border-top: 1px solid var(--border-color); flex-wrap: wrap;">
+          <button type="button" class="btn btn-outline" onclick="closeModal('modal-peritaje')">Cancelar</button>
+          <button type="button" class="btn btn-success" onclick="saveAndPrintPeritajeFromModal()">🖨️ Guardar e Imprimir / PDF Peritaje</button>
+          <button type="submit" class="btn btn-primary">💾 Guardar Hoja de Peritaje</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- =========================================================
+       MODAL 3: CREAR / EDITAR PROSPECTO (VENTA O COMPRA)
+       ========================================================= -->
+  <div class="modal-backdrop" id="modal-prospect">
+    <div class="modal-content" style="max-width: 700px;">
+      <div class="modal-header">
+        <h3 id="modal-prospect-title">👥 Registrar Prospecto</h3>
+        <button class="btn btn-outline btn-sm" onclick="closeModal('modal-prospect')">✕</button>
+      </div>
+      <form id="form-prospect" onsubmit="saveProspect(event)" class="modal-body">
+        <input type="hidden" id="prosp-id" />
+
+        <div class="form-grid">
+          <div class="form-group">
+            <label>Categoría del Prospecto *</label>
+            <select id="prosp-tipo" required onchange="onProspectTypeModalChange()">
+              <option value="VENTA">🏷️ Prospecto de Venta (Cliente buscando comprar carro)</option>
+              <option value="COMPRA">🚗 Prospecto de Compra (Dueño vendiendo su carro para inventario)</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Estado del Prospecto *</label>
+            <select id="prosp-estado" required>
+              <option value="Nuevo">🔵 Nuevo (Primer contacto)</option>
+              <option value="En negociación">🟡 En negociación (Oferta / Peritaje)</option>
+              <option value="Cerrado">🟢 Cerrado (Negocio concretado)</option>
+              <option value="Frío">⚪ Frío (En pausa / Seguimiento futuro)</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="form-grid">
+          <div class="form-group">
+            <label>Nombre del Cliente / Dueño (Solo Letras) *</label>
+            <input type="text" id="prosp-nombre" placeholder="Ej: Mauricio Cárdenas" required oninput="enforceLettersAndSpaces(this)" />
+          </div>
+          <div class="form-group">
+            <label>Teléfono / WhatsApp (Solo Números) *</label>
+            <input type="text" inputmode="numeric" id="prosp-telefono" placeholder="Ej: 3104567890" maxlength="15" required oninput="enforcePhoneDigits(this)" />
+          </div>
+        </div>
+
+        <!-- SECCIÓN EXCLUSIVA: PROSPECTO DE VENTA -->
+        <div id="prosp-fields-venta" style="display: flex; flex-direction: column; gap: 14px; border-top: 1px solid var(--border-color); padding-top: 12px;">
+          <h4 style="font-size: 14px; color: #60a5fa;">🏷️ Datos de Venta (Interés en Nuestro Inventario)</h4>
+          <div class="form-group">
+            <label>Presupuesto del Cliente ($ - Solo Números)</label>
+            <input type="text" inputmode="numeric" id="prosp-presupuesto" placeholder="Ej: 85.000.000" oninput="formatCurrencyInput(this)" />
+          </div>
+
+          <div class="form-group">
+            <label>Vehículo(s) de su Interés (Vinculados al Listado Maestro)</label>
+            <div id="prosp-vehiculos-checklist" style="max-height: 150px; overflow-y: auto; background: var(--bg-input); border: 1px solid var(--border-color); border-radius: var(--radius-sm); padding: 10px; display: flex; flex-direction: column; gap: 6px;"></div>
+          </div>
+
+          <div class="form-group">
+            <label>Otro Vehículo Buscado / Pedido Especial (Opcional)</label>
+            <input type="text" id="prosp-vehiculo-extra" list="colombia-vehicles-datalist" placeholder="Ej: Busca Mazda CX-30 2022 blanca o retoma" />
+          </div>
+        </div>
+
+        <!-- SECCIÓN EXCLUSIVA: PROSPECTO DE COMPRA (CAPTACIÓN DUEÑO) -->
+        <div id="prosp-fields-compra" style="display: none; flex-direction: column; gap: 14px; border-top: 1px solid var(--border-color); padding-top: 12px;">
+          <h4 style="font-size: 14px; color: #34d399;">🚗 Datos del Vehículo Ofrecido (Captación para Inventario)</h4>
+          <div class="form-grid">
+            <div class="form-group" style="flex: 2;">
+              <label>Vehículo Ofrecido (Marca, Línea y Modelo) *</label>
+              <input type="text" id="prosp-compra-vehiculo" list="colombia-vehicles-datalist" placeholder="Ej: Mazda 2 Grand Touring 2022" />
+            </div>
+            <div class="form-group">
+              <label>Placa (Alfanumérico)</label>
+              <input type="text" id="prosp-compra-placa" placeholder="Ej: KLP-123" maxlength="10" oninput="enforceAlphanumericPlate(this)" />
+            </div>
+          </div>
+
+          <div class="form-grid">
+            <div class="form-group">
+              <label>Kilometraje (km - Con puntos)</label>
+              <input type="text" inputmode="numeric" id="prosp-compra-km" placeholder="Ej: 42.000" oninput="formatCurrencyInput(this)" />
+            </div>
+            <div class="form-group">
+              <label>Precio Pretendido por Dueño ($)</label>
+              <input type="text" inputmode="numeric" id="prosp-compra-pretendido" placeholder="Ej: 68.000.000" oninput="formatCurrencyInput(this)" />
+            </div>
+            <div class="form-group">
+              <label>Nuestra Oferta Firme Cartech ($)</label>
+              <input type="text" inputmode="numeric" id="prosp-compra-oferta" placeholder="Ej: 61.500.000" oninput="formatCurrencyInput(this)" />
+            </div>
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label>Notas de Seguimiento / Negociación *</label>
+          <textarea id="prosp-notas" rows="3" placeholder="Ej: Viene el sábado a peritaje, único dueño, papeles al día..." required></textarea>
+        </div>
+
+        <div class="modal-footer" style="padding: 12px 0 0;">
+          <button type="button" class="btn btn-outline" onclick="closeModal('modal-prospect')">Cancelar</button>
+          <button type="submit" class="btn btn-primary">💾 Guardar Prospecto en la Nube</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- =========================================================
+       MODAL 4: GASTOS DEL VEHÍCULO (CON DESCUENTO AUTOMÁTICO DE DINERO LIBRE)
+       ========================================================= -->
+  <div class="modal-backdrop" id="modal-veh-expenses">
+    <div class="modal-content" style="max-width: 880px;">
+      <div class="modal-header">
+        <div>
+          <h3 id="modal-veh-exp-title">Gastos de Alistamiento, Comisiones y Liquidación</h3>
+          <span id="modal-veh-exp-subtitle" style="font-size: 13px; color: var(--text-muted);"></span>
+        </div>
+        <button class="btn btn-outline btn-sm" onclick="closeModal('modal-veh-expenses')">✕</button>
+      </div>
+      <div class="modal-body">
+        <input type="hidden" id="exp-veh-id" />
+
+        <div class="kpi-grid" id="veh-exp-summary-kpis" style="margin-bottom: 8px;"></div>
+
+        <form id="form-veh-expense" onsubmit="addVehicleExpense(event)" style="background: rgba(15, 23, 42, 0.65); padding: 14px; border-radius: var(--radius-sm); border: 1px solid var(--border-color);">
+          <h4 style="font-size: 13.5px; color: #60a5fa; margin-bottom: 10px;">➕ Agregar Gasto a este Vehículo (Descuenta de Ubicación de Dinero Libre)</h4>
+          <div class="form-grid">
+            <div class="form-group">
+              <label>Tipo de Gasto *</label>
+              <select id="vexp-tipo" required>
+                <option value="Alistamiento">🔧 Alistamiento (Mecánica, Latonería, Papeles)</option>
+                <option value="Comisión">🤝 Comisión (Compra, Venta, Referido)</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label>Concepto / Detalle *</label>
+              <input type="text" id="vexp-concepto" placeholder="Ej: Cambio de aceite, Pintura bomper..." required />
+            </div>
+            <div class="form-group">
+              <label>Valor ($ - Solo Números) *</label>
+              <input type="text" inputmode="numeric" id="vexp-valor" placeholder="Ej: 350.000" required oninput="formatCurrencyInput(this)" />
+            </div>
+          </div>
+          <div class="form-grid" style="margin-top: 10px;">
+            <div class="form-group">
+              <label>¿De qué Ubicación de Dinero Libre salió? *</label>
+              <select id="vexp-money-location" required></select>
+            </div>
+            <div class="form-group">
+              <label>¿Quién aportó el capital de este gasto?</label>
+              <select id="vexp-pagado-por"></select>
+            </div>
+            <div class="form-group">
+              <label>Fecha</label>
+              <input type="date" id="vexp-fecha" required />
+            </div>
+          </div>
+          <div style="display: flex; justify-content: flex-end; margin-top: 12px;">
+            <button type="submit" class="btn btn-primary btn-sm">➕ Añadir Gasto y Descontar Saldo</button>
+          </div>
+        </form>
+
+        <div class="table-responsive">
+          <table>
+            <thead>
+              <tr>
+                <th>Fecha</th>
+                <th>Categoría</th>
+                <th>Concepto</th>
+                <th>Origen Dinero / Aportante</th>
+                <th>Valor ($)</th>
+                <th>Quitar</th>
+              </tr>
+            </thead>
+            <tbody id="veh-expenses-list-tbody"></tbody>
+          </table>
+        </div>
+
+        <div class="split-preview-box" id="veh-exp-final-settlement"></div>
+      </div>
+      <div class="modal-footer" style="flex-wrap: wrap;">
+        <button class="btn btn-primary" onclick="printSettlementFromExpenseModal()">📄 Imprimir / PDF Liquidación a Socios</button>
+        <button class="btn btn-success" id="btn-quick-mark-sold" onclick="quickMarkAsSold()">✅ Marcar como Vendido / Actualizar Precio Venta</button>
+        <button class="btn btn-outline" onclick="closeModal('modal-veh-expenses')">Cerrar</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- =========================================================
+       MODAL 5: AGREGAR / EDITAR SOCIO
+       ========================================================= -->
+  <div class="modal-backdrop" id="modal-partner">
+    <div class="modal-content" style="max-width: 540px;">
+      <div class="modal-header">
+        <h3 id="modal-partner-title">Agregar Socio a la Base de Datos</h3>
+        <button class="btn btn-outline btn-sm" onclick="closeModal('modal-partner')">✕</button>
+      </div>
+      <form id="form-partner" onsubmit="savePartner(event)" class="modal-body">
+        <input type="hidden" id="part-id" />
+        <div class="form-group">
+          <label>Nombre Completo del Socio (Solo Letras) *</label>
+          <input type="text" id="part-nombre" placeholder="Ej: Taty, Henry, Daniel, William, Jimmy..." required oninput="enforceLettersAndSpaces(this)" />
+        </div>
+        <div class="form-group">
+          <label>Tipo de Socio *</label>
+          <select id="part-tipo" required>
+            <option value="Inversionista">💼 Socio Inversionista (Porcentaje fijo 50 / 50)</option>
+            <option value="Negocio">🤝 Socio de Negocio (Mismo negocio: divide entre 2, 3 o según cantidad)</option>
+          </select>
+        </div>
+        <div class="form-grid">
+          <div class="form-group">
+            <label>Teléfono / WhatsApp (Solo Números)</label>
+            <input type="text" inputmode="numeric" id="part-telefono" placeholder="Ej: 3105558899" maxlength="15" oninput="enforcePhoneDigits(this)" />
+          </div>
+          <div class="form-group">
+            <label>Documento / Cédula (Solo Números con puntos)</label>
+            <input type="text" inputmode="numeric" id="part-documento" placeholder="Ej: 79.456.123" oninput="formatCurrencyInput(this)" />
+          </div>
+        </div>
+        <div class="form-group">
+          <label>Notas / Acuerdos</label>
+          <input type="text" id="part-notas" placeholder="Ej: Inversionista 50/50 o socio de negocio conjunto" />
+        </div>
+        <div class="modal-footer" style="padding: 12px 0 0;">
+          <button type="button" class="btn btn-outline" onclick="closeModal('modal-partner')">Cancelar</button>
+          <button type="submit" class="btn btn-primary">💾 Guardar Socio</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- =========================================================
+       MODAL 6: AGREGAR / EDITAR GASTO PROPIO (CON UBICACIÓN DE DINERO OBLIGATORIA)
+       ========================================================= -->
+  <div class="modal-backdrop" id="modal-own-expense">
+    <div class="modal-content" style="max-width: 560px;">
+      <div class="modal-header">
+        <h3 id="modal-own-exp-title">Registrar Gasto Propio</h3>
+        <button class="btn btn-outline btn-sm" onclick="closeModal('modal-own-expense')">✕</button>
+      </div>
+      <form id="form-own-expense" onsubmit="saveOwnExpense(event)" class="modal-body">
+        <input type="hidden" id="oexp-id" />
+        <div class="form-grid">
+          <div class="form-group">
+            <label>Fecha del Gasto *</label>
+            <input type="date" id="oexp-fecha" required />
+          </div>
+          <div class="form-group">
+            <label>Categoría *</label>
+            <select id="oexp-categoria" required>
+              <option value="Arriendo / Local">Arriendo / Local</option>
+              <option value="Publicidad / Redes">Publicidad / Redes</option>
+              <option value="Transporte / Combustible">Transporte / Combustible</option>
+              <option value="Servicios / Internet">Servicios / Internet</option>
+              <option value="Personal / Alimentación">Personal / Alimentación</option>
+              <option value="Impuestos / Contabilidad">Impuestos / Contabilidad</option>
+              <option value="Otros Gastos Propios">Otros Gastos Propios</option>
+            </select>
+          </div>
+        </div>
+        <div class="form-group">
+          <label>Concepto / Descripción *</label>
+          <input type="text" id="oexp-concepto" placeholder="Ej: Pauta Facebook Ads, Gasolina diligencias, Arriendo oficina..." required />
+        </div>
+        <div class="form-grid">
+          <div class="form-group">
+            <label>Valor ($ - Solo Números con puntos) *</label>
+            <input type="text" inputmode="numeric" id="oexp-valor" placeholder="Ej: 250.000" required oninput="formatCurrencyInput(this)" />
+          </div>
+          <div class="form-group">
+            <label>Ubicación de Dinero Libre (Se descuenta automático) *</label>
+            <select id="oexp-location-id" required></select>
+          </div>
+        </div>
+        <div class="modal-footer" style="padding: 12px 0 0;">
+          <button type="button" class="btn btn-outline" onclick="closeModal('modal-own-expense')">Cancelar</button>
+          <button type="submit" class="btn btn-primary">💾 Guardar Gasto y Descontar Saldo</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- =========================================================
+       MODAL 7: CREAR / EDITAR UBICACIÓN DE DINERO LIBRE (CUENTA BANCARIA O EFECTIVO FÍSICO)
+       ========================================================= -->
+  <div class="modal-backdrop" id="modal-money-location">
+    <div class="modal-content" style="max-width: 540px;">
+      <div class="modal-header">
+        <h3 id="modal-money-loc-title">🏦 Configurar Ubicación de Dinero Libre</h3>
+        <button class="btn btn-outline btn-sm" onclick="closeModal('modal-money-location')">✕</button>
+      </div>
+      <form id="form-money-location" onsubmit="saveMoneyLocation(event)" class="modal-body">
+        <input type="hidden" id="mloc-id" />
+
+        <div class="form-group">
+          <label>Tipo de Ubicación de Dinero Libre *</label>
+          <select id="mloc-tipo" required onchange="onMoneyLocationTypeChange()">
+            <option value="Banco">🏦 Cuenta Bancaria (Ej: Bancolombia, Nu, Nequi, Davivienda)</option>
+            <option value="Efectivo">💵 Efectivo Físico (Requiere Lugar / Ubicación física)</option>
+          </select>
+        </div>
+
+        <div class="form-group">
+          <label id="label-mloc-nombre">Nombre de la Cuenta Bancaria *</label>
+          <input type="text" id="mloc-nombre" placeholder="Ej: Bancolombia Ahorros / Nu Bank" required />
+        </div>
+
+        <div class="form-group" id="group-mloc-ubicacion-fisica" style="display: none;">
+          <label>Lugar / Ubicación Física del Efectivo (Obligatorio) *</label>
+          <input type="text" id="mloc-ubicacion-fisica" placeholder="Ej: Caja fuerte oficina, Efectivo Carlos, Casa..." />
+        </div>
+
+        <div class="form-group">
+          <label>Saldo Disponible Actual ($ - Solo Números con puntos) *</label>
+          <input type="text" inputmode="numeric" id="mloc-saldo" placeholder="Ej: 25.000.000" required oninput="formatCurrencyInput(this)" />
+          <span class="input-hint">De este saldo se restarán automáticamente los gastos que asocies a esta ubicación</span>
+        </div>
+
+        <div class="modal-footer" style="padding: 12px 0 0;">
+          <button type="button" class="btn btn-outline" onclick="closeModal('modal-money-location')">Cancelar</button>
+          <button type="submit" class="btn btn-primary">💾 Guardar Ubicación de Dinero</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- =========================================================
+       MODAL 8: SELECTOR DE PLANTILLAS DE WHATSAPP (VENTA Y COMPRA)
+       ========================================================= -->
+  <div class="modal-backdrop" id="modal-whatsapp-templates">
+    <div class="modal-content" style="max-width: 680px;">
+      <div class="modal-header">
+        <div>
+          <h3>💬 Plantillas Oficiales de WhatsApp — Cartech Automóviles</h3>
+          <span id="wa-modal-subtitle" style="font-size: 12.5px; color: var(--text-muted);">Variables autocompletadas: {nombre}, {vehiculo}, {precio}, {kilometraje}</span>
+        </div>
+        <button class="btn btn-outline btn-sm" onclick="closeModal('modal-whatsapp-templates')">✕</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-grid">
+          <div class="form-group">
+            <label>Nombre Destinatario ({nombre})</label>
+            <input type="text" id="wa-var-nombre" oninput="refreshWhatsAppTemplatesPreview()" />
+          </div>
+          <div class="form-group">
+            <label>Teléfono / WhatsApp (Solo Números)</label>
+            <input type="text" inputmode="numeric" id="wa-var-telefono" placeholder="Ej: 3104567890" oninput="enforcePhoneDigits(this)" />
+          </div>
+        </div>
+
+        <div class="form-grid">
+          <div class="form-group" style="flex: 2;">
+            <label>Vehículo ({vehiculo})</label>
+            <input type="text" id="wa-var-vehiculo" oninput="refreshWhatsAppTemplatesPreview()" />
+          </div>
+          <div class="form-group">
+            <label>Precio / Oferta ($ {precio})</label>
+            <input type="text" inputmode="numeric" id="wa-var-precio" oninput="formatCurrencyInput(this); refreshWhatsAppTemplatesPreview()" />
+          </div>
+          <div class="form-group">
+            <label>Kilometraje ({kilometraje})</label>
+            <input type="text" inputmode="numeric" id="wa-var-km" oninput="formatCurrencyInput(this); refreshWhatsAppTemplatesPreview()" />
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label>Selecciona una Plantilla de Venta o Compra (Haz clic para elegir):</label>
+          <div id="wa-templates-list" style="display: flex; flex-direction: column; gap: 8px; margin-top: 4px;"></div>
+        </div>
+
+        <div class="form-group">
+          <label>Mensaje Final Listo para Enviar (Puedes ajustarlo si deseas):</label>
+          <textarea id="wa-final-message" rows="4" style="font-size: 13.5px; line-height: 1.5;"></textarea>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline" onclick="closeModal('modal-whatsapp-templates')">Cerrar</button>
+        <button type="button" class="btn btn-success" onclick="sendSelectedWhatsAppMessage()">💬 Enviar por WhatsApp Ahora</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>

@@ -1,0 +1,7 @@
+# Archivos locales y temporales que no se suben a GitHub
+datos_negocio.json
+Respaldo_*.json
+*.xlsx
+.netlify/
+.DS_Store
+Thumbs.db
