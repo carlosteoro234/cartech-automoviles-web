@@ -315,9 +315,10 @@
         <div class="top-bar">
           <div class="page-title">
             <h2>Hoja de Peritaje Técnico — Cartech Automóviles</h2>
-            <p>Evaluación estructurada de Estructura/Chasis, Pintura y Lámina, Motor, Suspensión/Frenos y Documentación.</p>
+            <p>Creación y edición exclusiva en <strong>Prospectos de Compra</strong>. Al pasar un vehículo al Inventario, su peritaje queda como <strong>Registro histórico de solo lectura</strong>.</p>
           </div>
           <div class="top-actions">
+            <button class="btn btn-primary" onclick="openModule('prospectos'); setProspectCategory('COMPRA');">🚗 Ir a Prospectos de Compra</button>
             <button class="btn btn-outline" onclick="exportToExcel()">📊 Exportar Peritajes a Excel</button>
           </div>
         </div>
@@ -342,9 +343,36 @@
           </div>
         </div>
 
+        <!-- Tabla 1: Peritajes Editables en Prospectos de Compra -->
         <div class="card-panel">
           <div class="card-header">
-            <h3>📋 Estado de Peritaje por Vehículo en Inventario</h3>
+            <h3>🚗 Peritajes en Prospectos de Compra (Habilitados para Crear / Editar)</h3>
+            <button class="btn btn-success btn-sm" onclick="openModule('prospectos'); setProspectCategory('COMPRA'); openProspectModal(null, 'COMPRA');">+ Nuevo Prospecto de Compra</button>
+          </div>
+          <div class="table-responsive">
+            <table>
+              <thead>
+                <tr>
+                  <th>Vehículo Ofrecido / Placa</th>
+                  <th>Dueño / Teléfono</th>
+                  <th>Puntaje / Veredicto</th>
+                  <th>Prueba de Ruta / Tapicería</th>
+                  <th>Llantas / Costo Daños</th>
+                  <th>Acciones (Editar / PDF)</th>
+                </tr>
+              </thead>
+              <tbody id="peritaje-prospects-tbody"></tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- Tabla 2: Historial de Peritajes en Inventario (SOLO LECTURA) -->
+        <div class="card-panel">
+          <div class="card-header">
+            <div>
+              <h3>📋 Historial de Peritajes en Inventario</h3>
+              <span style="font-size: 12px; color: #fbbf24; font-weight: 600;">🔒 Solo lectura - Registro histórico (Solo visualización y exportación a PDF)</span>
+            </div>
           </div>
           <div class="table-responsive">
             <table>
@@ -352,13 +380,11 @@
                 <tr>
                   <th>Vehículo / Placa</th>
                   <th>Puntaje General / Veredicto</th>
-                  <th>Chasis / Estructura</th>
-                  <th>Mecánica / Motor</th>
-                  <th>Latonería y Pintura</th>
-                  <th>Interior / Vidrios / Llantas</th>
-                  <th>Fugas y Documentos</th>
-                  <th>Costo Est. Alistamiento</th>
-                  <th>Acciones e Informe PDF</th>
+                  <th>Prueba Ruta / Tapicería</th>
+                  <th>Chasis / Latonería</th>
+                  <th>Llantas / Interior</th>
+                  <th>Costo Daños ($)</th>
+                  <th>Solo Lectura / PDF</th>
                 </tr>
               </thead>
               <tbody id="peritaje-tbody"></tbody>
@@ -1021,22 +1047,51 @@
   </div>
 
   <!-- =========================================================
-       MODAL 2: HOJA DE PERITAJE TÉCNICO DETALLADO POR PIEZA Y PORCENTAJES
+       MODAL 2: HOJA DE PERITAJE TÉCNICO (EDITABLE EN PROSPECTOS / SOLO LECTURA EN INVENTARIO)
        ========================================================= -->
   <div class="modal-backdrop" id="modal-peritaje">
     <div class="modal-content" style="max-width: 980px;">
       <div class="modal-header">
         <div>
-          <h3 id="modal-peritaje-title">📋 Hoja de Peritaje Técnico Detallado — Cartech Automóviles</h3>
+          <h3 id="modal-peritaje-title">📋 Hoja de Peritaje Técnico — Cartech Automóviles</h3>
           <span id="modal-peritaje-subtitle" style="font-size: 13px; color: var(--text-muted);"></span>
         </div>
-        <div style="display: flex; gap: 8px;">
-          <button type="button" class="btn btn-success btn-sm" onclick="saveAndPrintPeritajeFromModal()">🖨️ Imprimir / PDF Peritaje</button>
+        <div style="display: flex; gap: 8px; align-items: center;">
+          <button type="button" class="btn btn-success btn-sm" onclick="saveAndPrintPeritajeFromModal()" id="btn-peritaje-top-print">🖨️ Imprimir / PDF Peritaje</button>
           <button type="button" class="btn btn-outline btn-sm" onclick="closeModal('modal-peritaje')">✕</button>
         </div>
       </div>
       <form id="form-peritaje" onsubmit="saveVehiclePeritaje(event)" class="modal-body">
         <input type="hidden" id="per-veh-id" />
+        <input type="hidden" id="per-source-type" value="PROSPECT" />
+
+        <!-- Aviso discreto de Solo Lectura cuando pertenece al Inventario -->
+        <div id="peritaje-readonly-banner" style="display: none; background: rgba(245, 158, 11, 0.14); border: 1px solid rgba(245, 158, 11, 0.45); color: #fcd34d; padding: 9px 14px; border-radius: var(--radius-sm); font-size: 12.5px; font-weight: 700;">
+          🔒 Solo lectura - Registro histórico (Este vehículo ya está en Inventario; el peritaje solo se puede visualizar o exportar a PDF).
+        </div>
+
+        <!-- 1. Prueba de Ruta (Obligatoria) y 2. Tipo de Tapicería -->
+        <div class="form-grid" style="background: rgba(15, 23, 42, 0.7); padding: 12px 14px; border-radius: var(--radius-sm); border: 1px solid var(--border-color);">
+          <div class="form-group">
+            <label>🛣️ ¿Se realizó prueba de ruta? (Obligatorio) *</label>
+            <select id="per-prueba-ruta" required onchange="onPruebaRutaChange()">
+              <option value="SI">✅ Sí — Habilitar evaluación de Motor y Caja</option>
+              <option value="NO">⛔ No — Sin evaluación dinámica de Motor y Caja</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>💺 Tipo de Tapicería del Vehículo *</label>
+            <select id="per-tipo-tapiceria" required>
+              <option value="Cuero">Cuero</option>
+              <option value="Tela">Tela</option>
+              <option value="Mixta (Cuero/Tela)">Mixta (Cuero/Tela)</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>📅 Fecha del Peritaje *</label>
+            <input type="date" id="per-fecha" required />
+          </div>
+        </div>
 
         <!-- Banner Superior: Puntaje General Ponderado y Barras por Categoría en Vivo -->
         <div class="peritaje-score-banner" id="peritaje-live-score-banner"></div>
@@ -1082,17 +1137,18 @@
               <label>Observaciones Generales y Conclusión Técnica del Perito</label>
               <input type="text" id="per-observaciones" placeholder="Ej: Vehículo asegurable al 100%, estructura original, detalles estéticos leves." />
             </div>
-            <div class="form-group">
-              <label>Fecha del Peritaje</label>
-              <input type="date" id="per-fecha" required />
-            </div>
           </div>
         </div>
 
+        <!-- 4. Cláusula Legal Predeterminada Fija -->
+        <div style="background: rgba(15, 23, 42, 0.85); border: 1px solid var(--border-color); border-left: 3px solid #60a5fa; border-radius: 6px; padding: 10px 12px; font-size: 11.5px; color: #cbd5e1; line-height: 1.45;">
+          <strong>Cláusula Legal:</strong> Nota: La presente inspección refleja únicamente el estado del vehículo a la fecha de su realización; no se contemplan ni garantizan fallas futuras.
+        </div>
+
         <div class="modal-footer" style="padding: 14px 0 0; border-top: 1px solid var(--border-color); flex-wrap: wrap;">
-          <button type="button" class="btn btn-outline" onclick="closeModal('modal-peritaje')">Cancelar</button>
-          <button type="button" class="btn btn-success" onclick="saveAndPrintPeritajeFromModal()">🖨️ Guardar e Imprimir / PDF Peritaje</button>
-          <button type="submit" class="btn btn-primary">💾 Guardar Hoja de Peritaje</button>
+          <button type="button" class="btn btn-outline" onclick="closeModal('modal-peritaje')">Cerrar</button>
+          <button type="button" class="btn btn-success" onclick="saveAndPrintPeritajeFromModal()" id="btn-peritaje-bottom-print">🖨️ Imprimir / PDF Peritaje</button>
+          <button type="submit" class="btn btn-primary" id="btn-peritaje-save">💾 Guardar Hoja de Peritaje</button>
         </div>
       </form>
     </div>

@@ -873,7 +873,7 @@ function evaluateDocDate(dateStr, label, isNew) {
 
 function getPeritajeBadgeHtml(v) {
   if (!v.peritaje || !v.peritaje.veredicto) {
-    return `<span class="doc-pill doc-na" style="cursor:pointer;" onclick="openPeritajeModal('${v.id}')">📋 Peritaje: Pendiente</span>`;
+    return `<span class="doc-pill doc-na">🔒 Sin peritaje previo</span>`;
   }
   const scores = calculateDetailedPeritajeScores(v.peritaje);
   const ver = v.peritaje.veredicto;
@@ -883,7 +883,7 @@ function getPeritajeBadgeHtml(v) {
   else if (ver === 'Regular') { cls = 'veredicto-regular'; icon = '🟡'; }
   else if (ver === 'Para reparar') { cls = 'veredicto-reparar'; icon = '🔴'; }
 
-  return `<span class="doc-pill ${cls}" style="cursor:pointer;" onclick="openPeritajeModal('${v.id}')">📋 ${icon} ${escapeHtml(ver)} (${scores.generalPct}%)</span>`;
+  return `<span class="doc-pill ${cls}" style="cursor:pointer;" onclick="openPeritajeModal('${v.id}', 'VEHICLE')" title="Solo lectura - Registro histórico">🔒 ${icon} ${escapeHtml(ver)} (${scores.generalPct}%)</span>`;
 }
 
 // Calcula los días transcurridos entre fechaCompra y fechaVenta (o fecha actual)
@@ -981,12 +981,20 @@ function getDamageOptionByVal(val) {
   return PERITAJE_DAMAGE_OPTIONS.find((o) => o.val === val) || PERITAJE_DAMAGE_OPTIONS[0];
 }
 
+function getLlantasClassification(pct) {
+  const val = Number(pct) || 0;
+  if (val < 20) return { label: 'Deficiente', color: '#ef4444', icon: '🔴' };
+  if (val <= 40) return { label: 'Regular', color: '#f59e0b', icon: '🟠' };
+  if (val <= 70) return { label: 'Bueno', color: '#38bdf8', icon: '🔵' };
+  return { label: 'Excelente', color: '#10b981', icon: '🟢' };
+}
+
 function calculateDetailedPeritajeScores(peritajeObj) {
   const p = peritajeObj || {};
   const detalles = p.detalles || {};
   const costosManuales = p.costosManuales || {};
+  const pruebaRuta = p.pruebaRuta === 'NO' ? 'NO' : 'SI';
 
-  // compatibilidad hacia atrás si había piezas individuales guardadas antes
   function getZoneVal(zoneKey) {
     if (detalles[zoneKey]) return detalles[zoneKey];
     if (zoneKey === 'zonaFrente' && detalles.bomperDelantero) return detalles.bomperDelantero;
@@ -995,7 +1003,6 @@ function calculateDetailedPeritajeScores(peritajeObj) {
     return 'OPTIMO';
   }
 
-  // 1. Zonas de Carrocería (Frente, Lateral Izq, Lateral Der, Trasera, Techo)
   const carZones = ['zonaFrente', 'zonaLateralIzq', 'zonaLateralDer', 'zonaTrasera', 'zonaTecho'];
   let sumCar = 0;
   let sumLat = 0;
@@ -1012,43 +1019,37 @@ function calculateDetailedPeritajeScores(peritajeObj) {
   const latoneriaPct = Math.round(sumLat / carZones.length);
   const pinturaPct = Math.round(sumPin / carZones.length);
 
-  // 2. Chasis y Bajos (Peso 28%)
   const chasisPct = getDamageOptionByVal(getZoneVal('zonaChasis')).score;
-
-  // 3. Mecánica y Motor (Peso 27%)
-  const mecanicaPct = getDamageOptionByVal(getZoneVal('zonaMecanica')).score;
-
-  // 4. Tapicería e Interior (Peso 8%)
+  const mecanicaPct = pruebaRuta === 'SI' ? getDamageOptionByVal(getZoneVal('zonaMecanica')).score : null;
   const interiorPct = getDamageOptionByVal(getZoneVal('zonaInterior')).score;
-
-  // 5. Fugas y Fluidos (Peso 12%)
   const fugasPct = getDamageOptionByVal(getZoneVal('zonaFluidos')).score;
 
-  // 6. Llantas (Escalable de 10% en 10%) y Vidrios (Peso 10%)
   const llantasPct = typeof detalles.llantasPct === 'number'
     ? detalles.llantasPct
     : (detalles.llantasPct !== undefined ? Number(detalles.llantasPct) : 100);
+  const llantasInfo = getLlantasClassification(llantasPct);
   const vidriosPct = getDamageOptionByVal(getZoneVal('zonaVidrios')).score;
   const vidriosLlantasPct = Math.round(llantasPct * 0.65 + vidriosPct * 0.35);
 
-  // Suma exclusivamente de los costos manuales digitados por el usuario
   let totalManualCost = 0;
-  Object.values(costosManuales).forEach((val) => {
+  Object.entries(costosManuales).forEach(([k, val]) => {
+    if (pruebaRuta === 'NO' && k === 'zonaMecanica') return;
     totalManualCost += Number(val) || 0;
   });
 
-  // Si es un registro previo que no tenía `detalles`, respetar su costoEstimado manual si existía
   if (!p.detalles && p.veredicto) {
     const fallbackMap = { 'Excelente': 95, 'Bueno': 82, 'Regular': 68, 'Para reparar': 48 };
     const fb = fallbackMap[p.veredicto] || 90;
     return {
+      pruebaRuta,
       latoneriaPct: fb,
       pinturaPct: fb,
       carroceriaPct: fb,
       chasisPct: fb,
-      mecanicaPct: fb,
+      mecanicaPct: pruebaRuta === 'SI' ? fb : null,
       fugasPct: fb,
       llantasPct: 90,
+      llantasInfo: getLlantasClassification(90),
       vidriosPct: fb,
       vidriosLlantasPct: fb,
       interiorPct: fb,
@@ -1058,22 +1059,33 @@ function calculateDetailedPeritajeScores(peritajeObj) {
     };
   }
 
-  // Ponderación con mayor peso en Estructura/Chasis (28%) y Mecánica/Motor (27%)
-  const generalPct = Math.round(
-    chasisPct * 0.28 +
-    mecanicaPct * 0.27 +
-    carroceriaPct * 0.15 +
-    fugasPct * 0.12 +
-    vidriosLlantasPct * 0.10 +
-    interiorPct * 0.08
-  );
+  let generalPct;
+  if (pruebaRuta === 'SI') {
+    generalPct = Math.round(
+      chasisPct * 0.28 +
+      mecanicaPct * 0.27 +
+      carroceriaPct * 0.15 +
+      fugasPct * 0.12 +
+      vidriosLlantasPct * 0.10 +
+      interiorPct * 0.08
+    );
+  } else {
+    // Sin prueba de ruta: redistribuir pesos sobre las categorías sí evaluadas (0.73 total -> normalizado a 100%)
+    const weightedSum =
+      chasisPct * 0.28 +
+      carroceriaPct * 0.15 +
+      fugasPct * 0.12 +
+      vidriosLlantasPct * 0.10 +
+      interiorPct * 0.08;
+    generalPct = Math.round(weightedSum / 0.73);
+  }
 
-  // Escala oficial solicitada: Deficiente 0-59% / Aceptable 60-89% / Óptimo 90-100%
   let escalaLabel = 'ÓPTIMO';
   if (generalPct < 60) escalaLabel = 'DEFICIENTE';
   else if (generalPct < 90) escalaLabel = 'ACEPTABLE';
 
   return {
+    pruebaRuta,
     latoneriaPct,
     pinturaPct,
     carroceriaPct,
@@ -1081,6 +1093,7 @@ function calculateDetailedPeritajeScores(peritajeObj) {
     mecanicaPct,
     fugasPct,
     llantasPct,
+    llantasInfo,
     vidriosPct,
     vidriosLlantasPct,
     interiorPct,
@@ -1188,42 +1201,59 @@ function applyAuthUIState() {
 async function handleLoginSubmit(event) {
   event.preventDefault();
   const emailInput = (document.getElementById('login-email')?.value || '').trim().toLowerCase();
-  const passInput = document.getElementById('login-password')?.value || '';
+  const passInput = (document.getElementById('login-password')?.value || '').trim();
   const remember = document.getElementById('login-remember')?.checked !== false;
   const errBox = document.getElementById('auth-error-msg');
 
   if (errBox) errBox.style.display = 'none';
 
-  // Sincronizar primero con la nube para validar contra la lista de usuarios más reciente
-  await pullFromCloud(false);
+  try {
+    let users = await ensureAuthUsersList();
+    const inputHash = await sha256Hex(passInput);
 
-  const users = await ensureAuthUsersList();
-  const inputHash = await sha256Hex(passInput);
+    let matchedUser = users.find(
+      (u) => (u.email || '').toLowerCase() === emailInput && u.passwordHash === inputHash
+    );
 
-  const matchedUser = users.find(
-    (u) => (u.email || '').toLowerCase() === emailInput && u.passwordHash === inputHash
-  );
-
-  if (matchedUser) {
-    const sessionObj = {
-      loggedIn: true,
-      id: matchedUser.id,
-      nombre: matchedUser.nombre,
-      email: matchedUser.email,
-      rol: matchedUser.rol,
-      loginAt: Date.now()
-    };
-    if (remember) {
-      localStorage.setItem(AUTH_SESSION_KEY, JSON.stringify(sessionObj));
-    } else {
-      sessionStorage.setItem(AUTH_SESSION_KEY, JSON.stringify(sessionObj));
+    // Si no coincide localmente, hacer 1 consulta rápida con timeout de 2.5s a la nube por si se creó en otro dispositivo
+    if (!matchedUser) {
+      await Promise.race([
+        pullFromCloud(false),
+        new Promise((resolve) => setTimeout(resolve, 2500))
+      ]);
+      users = await ensureAuthUsersList();
+      matchedUser = users.find(
+        (u) => (u.email || '').toLowerCase() === emailInput && u.passwordHash === inputHash
+      );
     }
-    document.getElementById('login-password').value = '';
-    applyAuthUIState();
-    goHome();
-  } else {
+
+    if (matchedUser) {
+      const sessionObj = {
+        loggedIn: true,
+        id: matchedUser.id,
+        nombre: matchedUser.nombre,
+        email: matchedUser.email,
+        rol: matchedUser.rol,
+        loginAt: Date.now()
+      };
+      if (remember) {
+        localStorage.setItem(AUTH_SESSION_KEY, JSON.stringify(sessionObj));
+      } else {
+        sessionStorage.setItem(AUTH_SESSION_KEY, JSON.stringify(sessionObj));
+      }
+      const passEl = document.getElementById('login-password');
+      if (passEl) passEl.value = '';
+      applyAuthUIState();
+      goHome();
+    } else {
+      if (errBox) {
+        errBox.textContent = '⚠️ Correo o contraseña incorrectos. Verifica tus datos (inicial: carlos@cartech.co / Cartech2026).';
+        errBox.style.display = 'block';
+      }
+    }
+  } catch (err) {
     if (errBox) {
-      errBox.textContent = '⚠️ Correo o contraseña incorrectos.';
+      errBox.textContent = '⚠️ Error al iniciar sesión: ' + (err?.message || 'Intenta de nuevo');
       errBox.style.display = 'block';
     }
   }
@@ -1931,8 +1961,11 @@ function renderInventory() {
                 🔧 Gastos (${formatNumberWithDots((v.gastos || []).length)}) / Liquidar
               </button>
               <div style="display: flex; gap: 5px;">
-                <button class="btn btn-outline btn-sm" style="flex:1;" onclick="openPeritajeModal('${v.id}')">📋 Peritaje</button>
-                <button class="btn btn-outline btn-sm" onclick="printPeritajePDF('${v.id}')" title="Imprimir / PDF Hoja de Peritaje">🖨️ PDF</button>
+                ${v.peritaje
+                  ? `<button class="btn btn-outline btn-sm" style="flex:1;" onclick="openPeritajeModal('${v.id}', 'VEHICLE')" title="Solo lectura - Registro histórico">👁️ Ver Peritaje</button>
+                     <button class="btn btn-outline btn-sm" onclick="printPeritajePDF('${v.id}', 'VEHICLE')" title="Imprimir / PDF Hoja de Peritaje">🖨️ PDF</button>`
+                  : `<span style="font-size: 11px; color: var(--text-muted); padding: 4px 6px; border: 1px dashed var(--border-color); border-radius: 6px; width: 100%; text-align: center;">🔒 Solo lectura - Sin peritaje</span>`
+                }
               </div>
               <div style="display: flex; gap: 5px;">
                 <button class="btn btn-whatsapp btn-sm" style="flex:1;" onclick="openWhatsAppModalFromVehicle('${v.id}')">💬 WhatsApp</button>
@@ -1997,6 +2030,97 @@ function renderPeritajeSheet() {
     `;
   }
 
+  // 1. Renderizar Tabla de Peritajes Editables en PROSPECTOS DE COMPRA
+  const prospTbody = document.getElementById('peritaje-prospects-tbody');
+  if (prospTbody) {
+    const compraProspects = (db.prospects || []).filter((pr) => pr.tipo === 'COMPRA');
+    const filteredProsp = compraProspects.filter((pr) => {
+      const matchText =
+        !search ||
+        (pr.placaOfrecida || '').toLowerCase().includes(search) ||
+        (pr.vehiculoOfrecido || '').toLowerCase().includes(search) ||
+        (pr.nombre || '').toLowerCase().includes(search);
+      const ver = pr.peritaje?.veredicto || '';
+      let matchVer = true;
+      if (verFilter === 'SIN_PERITAJE') matchVer = !ver;
+      else if (verFilter !== 'TODOS') matchVer = ver === verFilter;
+      return matchText && matchVer;
+    });
+
+    if (filteredProsp.length === 0) {
+      prospTbody.innerHTML = `
+        <tr>
+          <td colspan="6" style="text-align:center; padding: 22px; color: var(--text-muted);">
+            No hay Prospectos de Compra en este filtro. Crea un Prospecto de Compra para realizar nuevos peritajes.
+          </td>
+        </tr>
+      `;
+    } else {
+      prospTbody.innerHTML = filteredProsp
+        .map((pr) => {
+          const p = pr.peritaje || null;
+          if (!p) {
+            return `
+              <tr>
+                <td>
+                  <div style="font-weight:700;">🚗 ${escapeHtml(pr.vehiculoOfrecido || 'Vehículo sin especificar')}</div>
+                  <div style="font-size:12px; color:#38bdf8; font-family:monospace;">${escapeHtml(pr.placaOfrecida || 'S/P')} • ${formatNumberWithDots(pr.kilometrajeOfrecido || 0)} km</div>
+                </td>
+                <td>
+                  <div style="font-weight:600;">${escapeHtml(pr.nombre)}</div>
+                  <div style="font-size:12px; color:var(--text-muted);">📞 ${escapeHtml(pr.telefono || '-')}</div>
+                </td>
+                <td><span class="badge condicion-usado">⚪ Pendiente</span></td>
+                <td colspan="2" style="font-size:12.5px; color:var(--text-muted);">Listo para realizar peritaje técnico antes de comprar.</td>
+                <td>
+                  <button class="btn btn-primary btn-sm" onclick="openPeritajeModal('${pr.id}', 'PROSPECT')">📋 Realizar Peritaje</button>
+                </td>
+              </tr>
+            `;
+          }
+          const sc = calculateDetailedPeritajeScores(p);
+          const ll = sc.llantasInfo || getLlantasClassification(sc.llantasPct);
+          let verClass = 'veredicto-bueno';
+          if (p.veredicto === 'Excelente') verClass = 'veredicto-excelente';
+          else if (p.veredicto === 'Regular') verClass = 'veredicto-regular';
+          else if (p.veredicto === 'Para reparar') verClass = 'veredicto-reparar';
+
+          return `
+            <tr>
+              <td>
+                <div style="font-weight:700;">🚗 ${escapeHtml(pr.vehiculoOfrecido || 'Vehículo')}</div>
+                <div style="font-size:12px; color:#38bdf8; font-family:monospace;">${escapeHtml(pr.placaOfrecida || 'S/P')} • ${formatNumberWithDots(pr.kilometrajeOfrecido || 0)} km</div>
+              </td>
+              <td>
+                <div style="font-weight:600;">${escapeHtml(pr.nombre)}</div>
+                <div style="font-size:12px; color:var(--text-muted);">📞 ${escapeHtml(pr.telefono || '-')}</div>
+              </td>
+              <td>
+                <div style="font-weight:800; color:${getScoreBarColor(sc.generalPct)};">${sc.generalPct}% (${sc.escalaLabel})</div>
+                <span class="badge ${verClass}" style="margin-top:2px;">${escapeHtml(p.veredicto)}</span>
+              </td>
+              <td>
+                <div style="font-size:12px; font-weight:600;">🛣️ Ruta: ${p.pruebaRuta === 'NO' ? '<span style="color:#fcd34d;">No realizada</span>' : '<span style="color:#34d399;">Sí</span>'}</div>
+                <div style="font-size:11.5px; color:var(--text-muted);">💺 Tapicería: ${escapeHtml(p.tipoTapiceria || 'Tela')}</div>
+              </td>
+              <td>
+                <div style="font-size:12px; font-weight:700; color:${ll.color};">🛞 Llantas: ${sc.llantasPct}% (${ll.label})</div>
+                <div style="font-size:12px; color:#fcd34d;">Daños: ${formatCOP(p.costoEstimado || 0)}</div>
+              </td>
+              <td>
+                <div style="display:flex; flex-direction:column; gap:5px;">
+                  <button class="btn btn-primary btn-sm" onclick="openPeritajeModal('${pr.id}', 'PROSPECT')">✏️ Editar Peritaje</button>
+                  <button class="btn btn-success btn-sm" onclick="printPeritajePDF('${pr.id}', 'PROSPECT')">🖨️ PDF Peritaje</button>
+                </div>
+              </td>
+            </tr>
+          `;
+        })
+        .join('');
+    }
+  }
+
+  // 2. Renderizar Tabla de Historial de Peritajes en INVENTARIO (SOLO LECTURA)
   const filtered = db.vehicles.filter((v) => {
     const matchText =
       !search ||
@@ -2017,8 +2141,8 @@ function renderPeritajeSheet() {
   if (filtered.length === 0) {
     tbody.innerHTML = `
       <tr>
-        <td colspan="9" style="text-align: center; padding: 28px; color: var(--text-muted);">
-          No hay vehículos que coincidan con el filtro de peritaje seleccionado.
+        <td colspan="7" style="text-align: center; padding: 28px; color: var(--text-muted);">
+          No hay vehículos en inventario que coincidan con el filtro de peritaje.
         </td>
       </tr>
     `;
@@ -2038,9 +2162,9 @@ function renderPeritajeSheet() {
               <div style="font-size: 12px; color: #38bdf8; font-family: monospace;">${escapeHtml(v.placa)} • ${formatNumberWithDots(km)} km</div>
             </td>
             <td><span class="badge condicion-usado">⚪ Sin Peritaje</span></td>
-            <td colspan="6" style="color: var(--text-muted); font-size: 13px;">Aún no se ha diligenciado la hoja de peritaje para este vehículo.</td>
+            <td colspan="4" style="color: var(--text-muted); font-size: 12.5px;">Este vehículo ingresó sin peritaje previo en Prospectos de Compra.</td>
             <td>
-              <button class="btn btn-primary btn-sm" onclick="openPeritajeModal('${v.id}')">📋 Realizar Peritaje</button>
+              <span style="font-size: 11px; color: #fbbf24; font-weight: 700;">🔒 Solo lectura - Registro histórico</span>
             </td>
           </tr>
         `;
@@ -2052,6 +2176,7 @@ function renderPeritajeSheet() {
       else if (p.veredicto === 'Para reparar') verClass = 'veredicto-reparar';
 
       const sc = calculateDetailedPeritajeScores(p);
+      const ll = sc.llantasInfo || getLlantasClassification(sc.llantasPct);
 
       return `
         <tr>
@@ -2060,36 +2185,29 @@ function renderPeritajeSheet() {
             <div style="font-size: 12px; color: #38bdf8; font-family: monospace;">${escapeHtml(v.placa)} • ${formatNumberWithDots(km)} km</div>
           </td>
           <td>
-            <div style="font-weight: 800; font-size: 16px; color: ${getScoreBarColor(sc.generalPct)};">${sc.generalPct}% (${sc.escalaLabel})</div>
+            <div style="font-weight: 800; font-size: 15px; color: ${getScoreBarColor(sc.generalPct)};">${sc.generalPct}% (${sc.escalaLabel})</div>
             <span class="badge ${verClass}" style="margin-top: 3px;">${escapeHtml(p.veredicto)}</span>
           </td>
           <td>
+            <div style="font-size: 12px; font-weight: 600;">🛣️ Ruta: ${p.pruebaRuta === 'NO' ? '<span style="color:#fcd34d;">No realizada</span>' : '<span style="color:#34d399;">Sí</span>'}</div>
+            <div style="font-size: 11.5px; color: var(--text-muted);">💺 Tapicería: ${escapeHtml(p.tipoTapiceria || 'Tela')}</div>
+          </td>
+          <td>
             <div style="font-weight: 700; color: ${getScoreBarColor(sc.chasisPct)};">Chasis: ${sc.chasisPct}%</div>
-            <div style="font-size: 11.5px; color: var(--text-muted);">${escapeHtml(p.estructuraEstado || 'Evaluado por piezas')}</div>
+            <div style="font-size: 11.5px; color: var(--text-muted);">Lat: ${sc.latoneriaPct}% • Pin: ${sc.pinturaPct}%</div>
           </td>
           <td>
-            <div style="font-weight: 700; color: ${getScoreBarColor(sc.mecanicaPct)};">Mecánica: ${sc.mecanicaPct}%</div>
-            <div style="font-size: 11.5px; color: var(--text-muted);">${escapeHtml(p.motorEstado || 'Tren motriz evaluado')}</div>
-          </td>
-          <td>
-            <div style="font-weight: 700; color: ${getScoreBarColor(sc.carroceriaPct)};">Latonería: ${sc.latoneriaPct}% • Pintura: ${sc.pinturaPct}%</div>
-            <div style="font-size: 11.5px; color: var(--text-muted);">13 piezas inspeccionadas</div>
-          </td>
-          <td>
-            <div style="font-weight: 700; color: ${getScoreBarColor(sc.vidriosLlantasPct)};">Llantas/Vidrios: ${sc.vidriosLlantasPct}%</div>
-            <div style="font-size: 11.5px; color: var(--text-muted);">Interior/Tapicería: ${sc.interiorPct}%</div>
-          </td>
-          <td>
-            <div style="font-weight: 700; color: ${getScoreBarColor(sc.fugasPct)};">Fluidos: ${sc.fugasPct}%</div>
-            <div style="font-size: 11.5px; color: var(--text-muted);">${escapeHtml(p.docsEstado || 'Al día')}</div>
+            <div style="font-weight: 700; color: ${ll.color};">🛞 Llantas: ${sc.llantasPct}% (${ll.label})</div>
+            <div style="font-size: 11.5px; color: var(--text-muted);">Interior: ${sc.interiorPct}%</div>
           </td>
           <td style="font-weight: 700; color: #fcd34d;">
             ${formatCOP(p.costoEstimado || 0)}
           </td>
           <td>
+            <div style="font-size: 10.5px; color: #fbbf24; font-weight: 700; margin-bottom: 5px;">🔒 Solo lectura - Registro histórico</div>
             <div style="display: flex; flex-direction: column; gap: 5px;">
-              <button class="btn btn-success btn-sm" onclick="printPeritajePDF('${v.id}')">🖨️ Imprimir / PDF Peritaje</button>
-              <button class="btn btn-outline btn-sm" onclick="openPeritajeModal('${v.id}')">✏️ Editar Peritaje</button>
+              <button class="btn btn-outline btn-sm" onclick="openPeritajeModal('${v.id}', 'VEHICLE')">👁️ Ver Peritaje</button>
+              <button class="btn btn-success btn-sm" onclick="printPeritajePDF('${v.id}', 'VEHICLE')">🖨️ PDF Peritaje</button>
             </div>
           </td>
         </tr>
@@ -2098,7 +2216,8 @@ function renderPeritajeSheet() {
     .join('');
 }
 
-function buildPeritajeDetailedSectionsHTML(detalles = {}, costosManuales = {}) {
+function buildPeritajeDetailedSectionsHTML(detalles = {}, costosManuales = {}, readOnly = false) {
+  const disabledAttr = readOnly ? 'disabled' : '';
   const zonesHtml = PERITAJE_ZONES.map((z) => {
     const curVal = detalles[z.key] || 'OPTIMO';
     const curCost = Number(costosManuales[z.key]) || 0;
@@ -2107,7 +2226,7 @@ function buildPeritajeDetailedSectionsHTML(detalles = {}, costosManuales = {}) {
       .join('');
 
     return `
-      <div class="peritaje-zone-card">
+      <div class="peritaje-zone-card" id="zone-card-${z.key}">
         <div class="peritaje-zone-header">
           <div>
             <div class="peritaje-zone-title">${escapeHtml(z.titulo)}</div>
@@ -2117,7 +2236,7 @@ function buildPeritajeDetailedSectionsHTML(detalles = {}, costosManuales = {}) {
         <div class="peritaje-zone-controls">
           <div class="form-group">
             <label>Estado / Nivel de Daño</label>
-            <select data-peritaje-zone="${z.key}" onchange="onPeritajeItemChange()">
+            <select data-peritaje-zone="${z.key}" onchange="onPeritajeItemChange()" ${disabledAttr}>
               ${optsHtml}
             </select>
           </div>
@@ -2130,6 +2249,7 @@ function buildPeritajeDetailedSectionsHTML(detalles = {}, costosManuales = {}) {
               value="${curCost > 0 ? formatNumberWithDots(curCost) : ''}"
               placeholder="Opcional: $ 0"
               oninput="formatCurrencyInput(this); onPeritajeItemChange()"
+              ${disabledAttr}
             />
           </div>
         </div>
@@ -2137,7 +2257,7 @@ function buildPeritajeDetailedSectionsHTML(detalles = {}, costosManuales = {}) {
     `;
   }).join('');
 
-  // Tarjeta especial: LLANTAS escalable de 10% en 10% (100%, 90%, ..., 0%)
+  // Tarjeta especial: LLANTAS escalable de 10% en 10% con la nueva escala (Deficiente <20%, Regular 20-40%, Bueno 50-70%, Excelente 80-100%)
   const curLlantasPct = typeof detalles.llantasPct === 'number'
     ? detalles.llantasPct
     : (detalles.llantasPct !== undefined ? Number(detalles.llantasPct) : 100);
@@ -2145,8 +2265,8 @@ function buildPeritajeDetailedSectionsHTML(detalles = {}, costosManuales = {}) {
 
   const llantasOptsHtml = LLANTAS_STEPS_10
     .map((pct) => {
-      const icon = pct >= 90 ? '🟢' : (pct >= 60 ? '🟡' : '🔴');
-      return `<option value="${pct}" ${pct === curLlantasPct ? 'selected' : ''}>${icon} ${pct}% vida útil de llantas</option>`;
+      const cls = getLlantasClassification(pct);
+      return `<option value="${pct}" ${pct === curLlantasPct ? 'selected' : ''}>${cls.icon} ${pct}% — ${cls.label}</option>`;
     })
     .join('');
 
@@ -2155,18 +2275,18 @@ function buildPeritajeDetailedSectionsHTML(detalles = {}, costosManuales = {}) {
       <div class="peritaje-zone-header">
         <div>
           <div class="peritaje-zone-title">🛞 11. Estado de Llantas (Escala de 10% en 10%)</div>
-          <div class="peritaje-zone-sub">Ajusta el porcentaje de vida útil del juego de llantas en pasos exactos de 10%</div>
+          <div class="peritaje-zone-sub">🔴 &lt;20% Deficiente • 🟠 20-40% Regular • 🔵 50-70% Bueno • 🟢 80-100% Excelente</div>
         </div>
       </div>
       <div class="peritaje-zone-controls">
         <div class="form-group">
           <label>Porcentaje Llantas (10% en 10%)</label>
           <div class="llantas-stepper-box">
-            <button type="button" class="llantas-step-btn" onclick="stepLlantasPct(-10)">-10%</button>
-            <select id="per-llantas-pct-select" onchange="onPeritajeItemChange()" style="flex:1; font-weight:700;">
+            <button type="button" class="llantas-step-btn" onclick="stepLlantasPct(-10)" ${disabledAttr}>-10%</button>
+            <select id="per-llantas-pct-select" onchange="onPeritajeItemChange()" style="flex:1; font-weight:700;" ${disabledAttr}>
               ${llantasOptsHtml}
             </select>
-            <button type="button" class="llantas-step-btn" onclick="stepLlantasPct(10)">+10%</button>
+            <button type="button" class="llantas-step-btn" onclick="stepLlantasPct(10)" ${disabledAttr}>+10%</button>
           </div>
         </div>
         <div class="form-group">
@@ -2178,6 +2298,7 @@ function buildPeritajeDetailedSectionsHTML(detalles = {}, costosManuales = {}) {
             value="${curLlantasCost > 0 ? formatNumberWithDots(curLlantasCost) : ''}"
             placeholder="Opcional: $ 0"
             oninput="formatCurrencyInput(this); onPeritajeItemChange()"
+            ${disabledAttr}
           />
         </div>
       </div>
@@ -2189,7 +2310,7 @@ function buildPeritajeDetailedSectionsHTML(detalles = {}, costosManuales = {}) {
 
 function stepLlantasPct(delta) {
   const sel = document.getElementById('per-llantas-pct-select');
-  if (!sel) return;
+  if (!sel || sel.disabled) return;
   const cur = Number(sel.value) || 0;
   const next = Math.min(100, Math.max(0, Math.round((cur + delta) / 10) * 10));
   sel.value = String(next);
@@ -2219,21 +2340,34 @@ function getPeritajeManualCostsFromModalDOM() {
   return costosManuales;
 }
 
+function onPruebaRutaChange() {
+  const pruebaRuta = document.getElementById('per-prueba-ruta')?.value || 'SI';
+  const mecCard = document.getElementById('zone-card-zonaMecanica');
+  if (mecCard) {
+    mecCard.style.display = pruebaRuta === 'SI' ? 'flex' : 'none';
+  }
+  onPeritajeItemChange();
+}
+
 function onPeritajeItemChange() {
   const detalles = getPeritajeDetailsFromModalDOM();
   const costosManuales = getPeritajeManualCostsFromModalDOM();
-  const sc = calculateDetailedPeritajeScores({ detalles, costosManuales });
+  const pruebaRuta = document.getElementById('per-prueba-ruta')?.value || 'SI';
+  const sc = calculateDetailedPeritajeScores({ detalles, costosManuales, pruebaRuta });
 
   const bannerEl = document.getElementById('peritaje-live-score-banner');
   if (bannerEl) {
     const colorGen = getScoreBarColor(sc.generalPct);
+    const rutaNote = pruebaRuta === 'NO'
+      ? `<div style="font-size: 11.5px; color: #fcd34d; font-weight: 700; margin-top: 2px;">⚠️ Prueba de ruta: No realizada (sin evaluación dinámica de motor y caja)</div>`
+      : `<div style="font-size: 12px; color: #cbd5e1;">Ponderación alta en Chasis (28%) y Mecánica/Motor (27%)</div>`;
     bannerEl.innerHTML = `
       <div>
         <div style="font-size: 12px; color: var(--text-muted); text-transform: uppercase; font-weight: 700;">Puntaje General Ponderado del Vehículo</div>
         <div style="font-size: 26px; font-weight: 900; color: ${colorGen};">
           ${sc.generalPct}% — ${sc.escalaLabel}
         </div>
-        <div style="font-size: 12px; color: #cbd5e1;">Ponderación alta en Chasis (28%) y Mecánica/Motor (27%)</div>
+        ${rutaNote}
       </div>
       <div style="text-align: right;">
         <div style="font-size: 12px; color: var(--text-muted);">Total Costo de Daños Digitado Manualmente:</div>
@@ -2245,18 +2379,24 @@ function onPeritajeItemChange() {
 
   const barsEl = document.getElementById('peritaje-live-cat-bars');
   if (barsEl) {
+    const ll = sc.llantasInfo || getLlantasClassification(sc.llantasPct);
     const cats = [
-      { label: '🏗️ Estructura / Chasis', pct: sc.chasisPct },
-      { label: '⚙️ Mecánica / Motor', pct: sc.mecanicaPct },
-      { label: '🔨 Latonería', pct: sc.latoneriaPct },
-      { label: '🎨 Pintura', pct: sc.pinturaPct },
-      { label: '🛞 Llantas (' + sc.llantasPct + '%) y Vidrios', pct: sc.vidriosLlantasPct },
-      { label: '💧 Fugas / Fluidos', pct: sc.fugasPct },
-      { label: '💺 Tapicería / Interior', pct: sc.interiorPct }
+      { label: '🏗️ Estructura / Chasis', pct: sc.chasisPct, customColor: null }
     ];
+    if (pruebaRuta === 'SI') {
+      cats.push({ label: '⚙️ Mecánica / Motor y Caja', pct: sc.mecanicaPct, customColor: null });
+    }
+    cats.push(
+      { label: '🔨 Latonería', pct: sc.latoneriaPct, customColor: null },
+      { label: '🎨 Pintura', pct: sc.pinturaPct, customColor: null },
+      { label: `🛞 Llantas (${ll.label})`, pct: sc.llantasPct, customColor: ll.color },
+      { label: '💧 Fugas / Fluidos', pct: sc.fugasPct, customColor: null },
+      { label: '💺 Tapicería / Interior', pct: sc.interiorPct, customColor: null }
+    );
+
     barsEl.innerHTML = cats
       .map((c) => {
-        const col = getScoreBarColor(c.pct);
+        const col = c.customColor || getScoreBarColor(c.pct);
         return `
           <div class="pbar-item">
             <div class="pbar-header">
@@ -2272,64 +2412,106 @@ function onPeritajeItemChange() {
       .join('');
   }
 
-  // Actualizar veredicto según escala Deficiente (0-59%) / Aceptable (60-89%) / Óptimo (90-100%)
-  const verSelect = document.getElementById('per-veredicto');
-  if (verSelect) {
-    if (sc.generalPct >= 90) verSelect.value = 'Excelente';
-    else if (sc.generalPct >= 75) verSelect.value = 'Bueno';
-    else if (sc.generalPct >= 60) verSelect.value = 'Regular';
-    else verSelect.value = 'Para reparar';
+  const isReadOnly = document.getElementById('per-source-type')?.value === 'VEHICLE';
+  if (!isReadOnly) {
+    const verSelect = document.getElementById('per-veredicto');
+    if (verSelect) {
+      if (sc.generalPct >= 90) verSelect.value = 'Excelente';
+      else if (sc.generalPct >= 75) verSelect.value = 'Bueno';
+      else if (sc.generalPct >= 60) verSelect.value = 'Regular';
+      else verSelect.value = 'Para reparar';
+    }
   }
 
-  // Actualizar Total Costo de Daños / Alistamiento sumando exclusivamente los costos manuales digitados
   const costInput = document.getElementById('per-costo-estimado');
   if (costInput) {
     costInput.value = formatNumberWithDots(sc.totalManualCost);
   }
 }
 
-function openPeritajeModal(vehId) {
-  const v = db.vehicles.find((item) => item.id === vehId);
-  if (!v) return;
+function openPeritajeModal(targetId, sourceType = 'PROSPECT') {
+  const isReadOnly = sourceType === 'VEHICLE';
+  let record = null;
+  let titleStr = '';
+  let subStr = '';
 
-  const { km } = getVehicleColorAndKm(v);
-  document.getElementById('per-veh-id').value = v.id;
-  document.getElementById('modal-peritaje-title').textContent = `📋 Hoja de Peritaje Compacta: ${v.marca} (${v.placa})`;
-  document.getElementById('modal-peritaje-subtitle').textContent = `Modelo ${v.anio} • ${formatNumberWithDots(km)} km • SOAT: ${v.soat || 'N/A'} • Tecno: ${v.tecno || 'N/A'}`;
-
-  const p = v.peritaje || {};
-  const container = document.getElementById('peritaje-detailed-sections-container');
-  if (container) {
-    container.innerHTML = buildPeritajeDetailedSectionsHTML(p.detalles || {}, p.costosManuales || {});
+  if (sourceType === 'PROSPECT') {
+    record = (db.prospects || []).find((pr) => pr.id === targetId);
+    if (!record) return;
+    titleStr = `📋 Peritaje (Prospecto de Compra): ${record.vehiculoOfrecido || 'Vehículo'} (${record.placaOfrecida || 'S/P'})`;
+    subStr = `Dueño: ${record.nombre} • ${formatNumberWithDots(record.kilometrajeOfrecido || 0)} km • Editable en Prospectos de Compra`;
+  } else {
+    record = db.vehicles.find((v) => v.id === targetId);
+    if (!record) return;
+    const { km } = getVehicleColorAndKm(record);
+    titleStr = `📋 Peritaje Histórico (Solo Lectura): ${record.marca} (${record.placa})`;
+    subStr = `Modelo ${record.anio} • ${formatNumberWithDots(km)} km • SOAT: ${record.soat || 'N/A'} • Tecno: ${record.tecno || 'N/A'}`;
   }
 
+  document.getElementById('per-veh-id').value = targetId;
+  document.getElementById('per-source-type').value = sourceType;
+  document.getElementById('modal-peritaje-title').textContent = titleStr;
+  document.getElementById('modal-peritaje-subtitle').textContent = subStr;
+
+  const p = record.peritaje || {};
+  const container = document.getElementById('peritaje-detailed-sections-container');
+  if (container) {
+    container.innerHTML = buildPeritajeDetailedSectionsHTML(p.detalles || {}, p.costosManuales || {}, isReadOnly);
+  }
+
+  document.getElementById('per-prueba-ruta').value = p.pruebaRuta === 'NO' ? 'NO' : 'SI';
+  document.getElementById('per-tipo-tapiceria').value = p.tipoTapiceria || 'Tela';
   document.getElementById('per-docs-estado').value = p.docsEstado || 'Al día / Listo para traspaso';
   document.getElementById('per-docs-notas').value = p.docsNotas || '';
   document.getElementById('per-veredicto').value = p.veredicto || 'Excelente';
   document.getElementById('per-observaciones').value = p.observaciones || '';
   document.getElementById('per-fecha').value = p.fecha || getTodayISO();
 
-  onPeritajeItemChange();
+  // Aplicar estado de solo lectura si es un vehículo del inventario
+  const roBanner = document.getElementById('peritaje-readonly-banner');
+  const saveBtn = document.getElementById('btn-peritaje-save');
+  if (roBanner) roBanner.style.display = isReadOnly ? 'block' : 'none';
+  if (saveBtn) saveBtn.style.display = isReadOnly ? 'none' : 'inline-flex';
+
+  ['per-prueba-ruta', 'per-tipo-tapiceria', 'per-docs-estado', 'per-docs-notas', 'per-veredicto', 'per-observaciones', 'per-fecha'].forEach((elId) => {
+    const el = document.getElementById(elId);
+    if (el) el.disabled = isReadOnly;
+  });
+
+  onPruebaRutaChange();
   document.getElementById('modal-peritaje').classList.add('open');
 }
 
 function saveVehiclePeritajeDataFromModal() {
-  const vehId = document.getElementById('per-veh-id').value;
-  const v = db.vehicles.find((item) => item.id === vehId);
-  if (!v) return null;
+  const sourceType = document.getElementById('per-source-type')?.value || 'PROSPECT';
+  const targetId = document.getElementById('per-veh-id').value;
+
+  // Regla estricta: NO permitir editar peritajes desde Inventario
+  if (sourceType === 'VEHICLE') {
+    return { targetId, sourceType };
+  }
+
+  const prospect = (db.prospects || []).find((pr) => pr.id === targetId);
+  if (!prospect) return null;
 
   const detalles = getPeritajeDetailsFromModalDOM();
   const costosManuales = getPeritajeManualCostsFromModalDOM();
-  const sc = calculateDetailedPeritajeScores({ detalles, costosManuales });
+  const pruebaRuta = document.getElementById('per-prueba-ruta').value;
+  const tipoTapiceria = document.getElementById('per-tipo-tapiceria').value;
+  const sc = calculateDetailedPeritajeScores({ detalles, costosManuales, pruebaRuta });
 
-  v.peritaje = {
-    detalles: detalles,
-    costosManuales: costosManuales,
+  prospect.peritaje = {
+    pruebaRuta,
+    tipoTapiceria,
+    detalles,
+    costosManuales,
     puntajes: sc,
     estructuraEstado: `Chasis ${sc.chasisPct}% (${sc.chasisPct >= 90 ? 'Óptimo' : (sc.chasisPct >= 60 ? 'Aceptable' : 'Deficiente')})`,
     pinturaEstado: `Latonería ${sc.latoneriaPct}% / Pintura ${sc.pinturaPct}%`,
-    motorEstado: `Mecánica ${sc.mecanicaPct}% / Fluidos ${sc.fugasPct}%`,
-    suspensionEstado: `Llantas ${sc.llantasPct}% / Vidrios ${sc.vidriosPct}% / Interior ${sc.interiorPct}%`,
+    motorEstado: pruebaRuta === 'SI'
+      ? `Mecánica ${sc.mecanicaPct}% / Fluidos ${sc.fugasPct}%`
+      : 'Prueba de ruta: No realizada (sin evaluación dinámica de motor y caja)',
+    suspensionEstado: `Llantas ${sc.llantasPct}% (${sc.llantasInfo.label}) / Interior ${sc.interiorPct}%`,
     docsEstado: document.getElementById('per-docs-estado').value,
     docsNotas: document.getElementById('per-docs-notas').value.trim(),
     veredicto: document.getElementById('per-veredicto').value,
@@ -2339,7 +2521,7 @@ function saveVehiclePeritajeDataFromModal() {
   };
 
   saveDB();
-  return v;
+  return { targetId, sourceType };
 }
 
 function saveVehiclePeritaje(event) {
@@ -2349,9 +2531,9 @@ function saveVehiclePeritaje(event) {
 }
 
 function saveAndPrintPeritajeFromModal() {
-  const v = saveVehiclePeritajeDataFromModal();
-  if (v) {
-    printPeritajePDF(v.id);
+  const res = saveVehiclePeritajeDataFromModal();
+  if (res && res.targetId) {
+    printPeritajePDF(res.targetId, res.sourceType);
   }
 }
 
@@ -2645,10 +2827,16 @@ function renderProspectsSheet() {
             </td>
             <td>
               <div style="display: flex; flex-direction: column; gap: 5px;">
+                <div style="display: flex; gap: 5px;">
+                  <button class="btn btn-primary btn-sm" style="flex:1;" onclick="openPeritajeModal('${p.id}', 'PROSPECT')">
+                    📋 ${p.peritaje ? 'Editar Peritaje' : 'Hacer Peritaje'}
+                  </button>
+                  ${p.peritaje ? `<button class="btn btn-success btn-sm" onclick="printPeritajePDF('${p.id}', 'PROSPECT')" title="Imprimir / PDF Peritaje">🖨️ PDF</button>` : ''}
+                </div>
                 <button class="btn btn-whatsapp btn-sm" onclick="openWhatsAppModalFromProspect('${p.id}')">
                   💬 Plantillas WhatsApp (Compra)
                 </button>
-                <button class="btn btn-outline btn-sm" onclick="convertPurchaseProspectToInventory('${p.id}')" title="Pasar este carro al Inventario Maestro">
+                <button class="btn btn-outline btn-sm" onclick="convertPurchaseProspectToInventory('${p.id}')" title="Pasar este carro y su peritaje al Inventario Maestro">
                   ➕ Pasar a Inventario
                 </button>
                 <div style="display: flex; gap: 5px;">
@@ -2771,7 +2959,12 @@ function convertPurchaseProspectToInventory(prospId) {
   const p = (db.prospects || []).find((item) => item.id === prospId);
   if (!p) return;
 
-  switchSheet('inventario');
+  // Transferir automáticamente el peritaje del prospecto al vehículo en modo SOLO LECTURA
+  window.pendingTransferPeritaje = p.peritaje
+    ? JSON.parse(JSON.stringify(p.peritaje))
+    : null;
+
+  openModule('inventario');
   openVehicleModal();
 
   document.getElementById('veh-estado').value = 'En Compra';
@@ -3707,7 +3900,9 @@ function saveVehicle(event) {
     }
   } else {
     payload.gastos = [];
-    payload.peritaje = null;
+    payload.peritaje = window.pendingTransferPeritaje || null;
+    payload.peritajeLocked = Boolean(window.pendingTransferPeritaje);
+    window.pendingTransferPeritaje = null;
     db.vehicles.unshift(payload);
   }
 
@@ -3965,16 +4160,46 @@ function getCartechLogoPrintHTML() {
   `;
 }
 
-// 2. IMPRESIÓN / PDF DE HOJA DE PERITAJE TÉCNICO (POR ZONAS Y COSTOS MANUALES)
-function printPeritajePDF(vehId) {
-  const v = db.vehicles.find((item) => item.id === vehId);
-  if (!v) return;
+// 2. IMPRESIÓN / PDF DE HOJA DE PERITAJE TÉCNICO (PROSPECTO DE COMPRA O INVENTARIO SOLO LECTURA)
+function printPeritajePDF(targetId, sourceType = 'VEHICLE') {
+  let v = null;
+  let p = {};
+  let color = 'Sin especificar';
+  let km = 0;
 
-  const p = v.peritaje || {};
+  if (sourceType === 'PROSPECT') {
+    const pr = (db.prospects || []).find((item) => item.id === targetId);
+    if (!pr) return;
+    p = pr.peritaje || {};
+    km = Number(pr.kilometrajeOfrecido) || 0;
+    v = {
+      placa: pr.placaOfrecida || 'SIN-PLACA',
+      marca: pr.vehiculoOfrecido || 'Vehículo en captación',
+      anio: '-',
+      condicion: 'Usado',
+      soat: 'Por verificar',
+      tecno: 'Por verificar',
+      propietario: pr.nombre || '-',
+      propContacto: pr.telefono || '-',
+      precioPublicado: pr.ofertaNuestra || pr.precioPretendido || 0,
+      precioVenta: 0,
+      precioCompra: pr.precioPretendido || 0
+    };
+  } else {
+    v = db.vehicles.find((item) => item.id === targetId);
+    if (!v) return;
+    p = v.peritaje || {};
+    const ck = getVehicleColorAndKm(v);
+    color = ck.color;
+    km = ck.km;
+  }
+
   const detalles = p.detalles || {};
   const costosManuales = p.costosManuales || {};
+  const pruebaRuta = p.pruebaRuta === 'NO' ? 'NO' : 'SI';
+  const tipoTapiceria = p.tipoTapiceria || 'Tela';
   const sc = calculateDetailedPeritajeScores(p);
-  const { color, km } = getVehicleColorAndKm(v);
+  const llInfo = sc.llantasInfo || getLlantasClassification(sc.llantasPct);
 
   function getZoneBadgeInfo(zoneKey) {
     const val = detalles[zoneKey] || 'OPTIMO';
@@ -3994,46 +4219,53 @@ function printPeritajePDF(vehId) {
     `;
   }
 
-  const llantasColor = getScoreBarColor(sc.llantasPct);
+  const llantasColor = llInfo.color;
+  const mecanicaBoxSvg = pruebaRuta === 'SI'
+    ? `
+      <rect x="268" y="28" width="76" height="32" rx="6" fill="#eff6ff" stroke="${getScoreBarColor(sc.mecanicaPct)}" stroke-width="2" />
+      <text x="306" y="42" text-anchor="middle" font-size="8.2" font-weight="800" fill="#1e293b" font-family="Arial">MOTOR/CAJA</text>
+      <text x="306" y="54" text-anchor="middle" font-size="10" font-weight="900" fill="${getScoreBarColor(sc.mecanicaPct)}" font-family="Arial">${sc.mecanicaPct}%</text>
+    `
+    : `
+      <rect x="268" y="28" width="76" height="32" rx="6" fill="#fef3c7" stroke="#f59e0b" stroke-width="1.8" />
+      <text x="306" y="42" text-anchor="middle" font-size="7.5" font-weight="800" fill="#92400e" font-family="Arial">SIN PRUEBA</text>
+      <text x="306" y="54" text-anchor="middle" font-size="7.5" font-weight="900" fill="#b45309" font-family="Arial">DE RUTA</text>
+    `;
+
   const carDiagramSVG = `
     <svg viewBox="0 0 360 250" width="100%" height="235" style="background:#f8fafc; border:1px solid #cbd5e1; border-radius:8px;">
       <text x="180" y="16" text-anchor="middle" font-size="10.5" font-weight="800" fill="#003893" font-family="Arial">DIAGRAMA DE ZONAS DEL VEHÍCULO Y ESTADO DE LLANTAS</text>
-      <!-- Zona 1: Frente -->
       ${buildSvgZone(100, 24, 160, 40, 'zonaFrente', '1. FRENTE (Bomper / Capó)', 10)}
-      <!-- Zona 2: Lateral Izquierdo -->
       ${buildSvgZone(18, 70, 88, 120, 'zonaLateralIzq', '2. LATERAL IZQ.')}
-      <!-- Zona 5: Techo y Estructura Superior -->
       ${buildSvgZone(112, 70, 136, 62, 'zonaTecho', '5. TECHO / SUP.')}
-      <!-- Zona 6: Chasis y Bajos -->
       ${buildSvgZone(112, 138, 136, 52, 'zonaChasis', '6. CHASIS Y BAJOS')}
-      <!-- Zona 3: Lateral Derecho -->
       ${buildSvgZone(254, 70, 88, 120, 'zonaLateralDer', '3. LATERAL DER.')}
-      <!-- Zona 4: Parte Trasera -->
       ${buildSvgZone(100, 196, 160, 40, 'zonaTrasera', '4. PARTE TRASERA (Baúl/Bomper)', 10)}
-      <!-- Indicador de Llantas en las 4 esquinas -->
-      <rect x="20" y="28" width="72" height="32" rx="6" fill="#eff6ff" stroke="${llantasColor}" stroke-width="2" />
-      <text x="56" y="42" text-anchor="middle" font-size="8.5" font-weight="800" fill="#1e293b" font-family="Arial">LLANTAS</text>
-      <text x="56" y="54" text-anchor="middle" font-size="10" font-weight="900" fill="${llantasColor}" font-family="Arial">${sc.llantasPct}% VIDA</text>
-      <rect x="268" y="28" width="72" height="32" rx="6" fill="#eff6ff" stroke="${llantasColor}" stroke-width="2" />
-      <text x="304" y="42" text-anchor="middle" font-size="8.5" font-weight="800" fill="#1e293b" font-family="Arial">MECÁNICA</text>
-      <text x="304" y="54" text-anchor="middle" font-size="10" font-weight="900" fill="${getScoreBarColor(sc.mecanicaPct)}" font-family="Arial">${sc.mecanicaPct}%</text>
+      <rect x="16" y="28" width="78" height="32" rx="6" fill="#eff6ff" stroke="${llantasColor}" stroke-width="2" />
+      <text x="55" y="42" text-anchor="middle" font-size="8" font-weight="800" fill="#1e293b" font-family="Arial">LLANTAS</text>
+      <text x="55" y="54" text-anchor="middle" font-size="9" font-weight="900" fill="${llantasColor}" font-family="Arial">${sc.llantasPct}% ${llInfo.label.toUpperCase()}</text>
+      ${mecanicaBoxSvg}
     </svg>
   `;
 
   const catBarsData = [
-    { name: 'ESTRUCTURA Y CHASIS (Ponderación 28%)', pct: sc.chasisPct },
-    { name: 'MECÁNICA, MOTOR Y CAJA (Ponderación 27%)', pct: sc.mecanicaPct },
-    { name: 'LATONERÍA CARROCERÍA', pct: sc.latoneriaPct },
-    { name: 'PINTURA Y ACABADO', pct: sc.pinturaPct },
-    { name: 'LLANTAS (' + sc.llantasPct + '%) Y VIDRIOS (' + sc.vidriosPct + '%)', pct: sc.vidriosLlantasPct },
-    { name: 'ESTANQUEIDAD / FLUIDOS (SIN FUGAS)', pct: sc.fugasPct },
-    { name: 'TAPICERÍA, INTERIOR Y ELÉCTRICO', pct: sc.interiorPct }
+    { name: 'ESTRUCTURA Y CHASIS (Ponderación Alta)', pct: sc.chasisPct, customColor: null, customTag: null }
   ];
+  if (pruebaRuta === 'SI') {
+    catBarsData.push({ name: 'MECÁNICA, MOTOR Y CAJA (Ponderación Alta)', pct: sc.mecanicaPct, customColor: null, customTag: null });
+  }
+  catBarsData.push(
+    { name: 'LATONERÍA CARROCERÍA', pct: sc.latoneriaPct, customColor: null, customTag: null },
+    { name: 'PINTURA Y ACABADO', pct: sc.pinturaPct, customColor: null, customTag: null },
+    { name: 'LLANTAS (ESCALA DE DESGASTE)', pct: sc.llantasPct, customColor: llInfo.color, customTag: llInfo.label.toUpperCase() },
+    { name: 'ESTANQUEIDAD / FLUIDOS (SIN FUGAS)', pct: sc.fugasPct, customColor: null, customTag: null },
+    { name: `TAPICERÍA (${tipoTapiceria.toUpperCase()}) E INTERIOR`, pct: sc.interiorPct, customColor: null, customTag: null }
+  );
 
   const catBarsHtml = catBarsData
     .map((c) => {
-      const col = getScoreBarColor(c.pct);
-      const tag = c.pct >= 90 ? 'ÓPTIMO' : (c.pct >= 60 ? 'ACEPTABLE' : 'DEFICIENTE');
+      const col = c.customColor || getScoreBarColor(c.pct);
+      const tag = c.customTag || (c.pct >= 90 ? 'ÓPTIMO' : (c.pct >= 60 ? 'ACEPTABLE' : 'DEFICIENTE'));
       return `
         <div style="margin-bottom:7px;">
           <div style="display:flex; justify-content:space-between; font-size:11px; font-weight:700; margin-bottom:2px; color:#1e293b;">
@@ -4048,8 +4280,18 @@ function printPeritajePDF(vehId) {
     })
     .join('');
 
-  // Tabla resumen de las zonas evaluadas y sus costos manuales (si se digitaron)
-  const zoneRowsHtml = PERITAJE_ZONES.map((z) => {
+  // Nota automática cuando NO se realizó prueba de ruta
+  const pruebaRutaBannerHtml = pruebaRuta === 'NO'
+    ? `
+      <div style="background:#fef3c7; border:1.5px solid #f59e0b; color:#92400e; padding:7px 12px; border-radius:6px; font-size:11.5px; font-weight:800; margin-bottom:10px;">
+        ⚠️ Prueba de ruta: No realizada (sin evaluación dinámica de motor y caja)
+      </div>
+    `
+    : '';
+
+  // Tabla de zonas evaluadas (ocultando zonaMecanica si pruebaRuta === 'NO')
+  const visibleZones = PERITAJE_ZONES.filter((z) => !(pruebaRuta === 'NO' && z.key === 'zonaMecanica'));
+  const zoneRowsHtml = visibleZones.map((z) => {
     const info = getZoneBadgeInfo(z.key);
     const cleanLabel = info.label.replace(/^[🟢🟡🟠🔴]\s*/, '');
     const manualCost = Number(costosManuales[z.key]) || 0;
@@ -4063,9 +4305,9 @@ function printPeritajePDF(vehId) {
     `;
   }).join('') + `
     <tr>
-      <td style="padding:5px 8px; border-bottom:1px solid #e2e8f0; font-weight:700; color:#003893;">11. Llantas (Escala 10% en 10%)</td>
-      <td style="padding:5px 8px; border-bottom:1px solid #e2e8f0; color:#475569;">Juego de llantas del vehículo</td>
-      <td style="padding:5px 8px; border-bottom:1px solid #e2e8f0; font-weight:700; color:${llantasColor};">${sc.llantasPct}% de vida útil</td>
+      <td style="padding:5px 8px; border-bottom:1px solid #e2e8f0; font-weight:700; color:#003893;">Llantas (Escala 10% en 10%)</td>
+      <td style="padding:5px 8px; border-bottom:1px solid #e2e8f0; color:#475569;">&lt;20% Deficiente • 20-40% Regular • 50-70% Bueno • 80-100% Excelente</td>
+      <td style="padding:5px 8px; border-bottom:1px solid #e2e8f0; font-weight:700; color:${llantasColor};">${sc.llantasPct}% — ${llInfo.label}</td>
       <td style="padding:5px 8px; border-bottom:1px solid #e2e8f0; text-align:right; font-weight:700;">${Number(costosManuales.zonaLlantas) > 0 ? formatCOP(costosManuales.zonaLlantas) : '$ 0'}</td>
     </tr>
   `;
@@ -4094,8 +4336,9 @@ function printPeritajePDF(vehId) {
         .info-item strong { color: #0f172a; font-size: 12.5px; }
         .middle-grid { display: grid; grid-template-columns: 1.05fr 0.95fr; gap: 14px; margin-bottom: 12px; align-items: stretch; }
         .scale-legend { display: flex; justify-content: space-between; background: #f8fafc; border: 1px solid #cbd5e1; border-radius: 5px; padding: 5px 10px; font-size: 10.5px; font-weight: 800; margin-top: 8px; }
-        .obs-box { border: 1.5px solid #003893; border-radius: 6px; padding: 8px 12px; margin-bottom: 16px; background: #f8fafc; font-size: 11.5px; }
-        .signatures { display: grid; grid-template-columns: 1fr 1fr; gap: 40px; margin-top: 26px; padding-top: 10px; }
+        .obs-box { border: 1.5px solid #003893; border-radius: 6px; padding: 8px 12px; margin-bottom: 10px; background: #f8fafc; font-size: 11.5px; }
+        .legal-clause { border: 1px solid #94a3b8; background: #f1f5f9; border-radius: 5px; padding: 7px 10px; font-size: 10.5px; color: #334155; font-style: italic; margin-bottom: 14px; text-align: center; }
+        .signatures { display: grid; grid-template-columns: 1fr 1fr; gap: 40px; margin-top: 22px; padding-top: 10px; }
         .sig-line { border-top: 1.5px solid #0f172a; text-align: center; padding-top: 5px; font-size: 11.5px; font-weight: 700; }
         @media print {
           body { background: #fff; padding: 0; }
@@ -4127,6 +4370,8 @@ function printPeritajePDF(vehId) {
           </div>
         </div>
 
+        ${pruebaRutaBannerHtml}
+
         <div class="info-two-cols">
           <div class="info-card">
             <div class="info-card-title">🚘 1. Datos Técnicos del Vehículo</div>
@@ -4135,6 +4380,8 @@ function printPeritajePDF(vehId) {
               <div class="info-item"><span>Marca y Línea</span><strong>${escapeHtml(v.marca)}</strong></div>
               <div class="info-item"><span>Modelo (Año)</span><strong>${v.anio} (${escapeHtml(v.condicion)})</strong></div>
               <div class="info-item"><span>Kilometraje</span><strong>${formatNumberWithDots(km)} km</strong></div>
+              <div class="info-item"><span>Tipo de Tapicería</span><strong style="color:#003893;">${escapeHtml(tipoTapiceria)}</strong></div>
+              <div class="info-item"><span>Prueba de Ruta</span><strong>${pruebaRuta === 'SI' ? '✅ Sí realizada' : '⛔ No realizada'}</strong></div>
               <div class="info-item"><span>Color</span><strong>${escapeHtml(color)}</strong></div>
               <div class="info-item"><span>SOAT / Tecnomecánica</span><strong>SOAT: ${escapeHtml(v.soat || 'N/A')} | Tecno: ${escapeHtml(v.tecno || 'N/A')}</strong></div>
             </div>
@@ -4146,7 +4393,7 @@ function printPeritajePDF(vehId) {
               <div class="info-item"><span>Propietario / Cliente</span><strong>${escapeHtml(v.propietario || '-')}</strong></div>
               <div class="info-item"><span>Teléfono Contacto</span><strong>${escapeHtml(v.propContacto || '-')}</strong></div>
               <div class="info-item"><span>Estado Documental</span><strong>${escapeHtml(p.docsEstado || 'Al día')}</strong></div>
-              <div class="info-item"><span>Valor Comercial / Lista</span><strong style="color:#003893;">${formatCOP(v.precioPublicado || v.precioVenta || v.precioCompra)}</strong></div>
+              <div class="info-item"><span>Valor Comercial / Ref.</span><strong style="color:#003893;">${formatCOP(v.precioPublicado || v.precioVenta || v.precioCompra)}</strong></div>
               <div class="info-item"><span>Total Costo Daños / Alist.</span><strong style="color:#d97706;">${formatCOP(totalCostoFinal)}</strong></div>
               <div class="info-item"><span>Veredicto Cartech</span><strong style="color:${genColor};">${escapeHtml(p.veredicto || 'Excelente')} (${sc.escalaLabel})</strong></div>
             </div>
@@ -4168,14 +4415,13 @@ function printPeritajePDF(vehId) {
 
           <div class="info-card" style="padding:8px 10px; display:flex; flex-direction:column; justify-content:space-between;">
             ${carDiagramSVG}
-            <div style="font-size:9.5px; color:#475569; text-align:center; margin-top:4px; font-weight:700;">
-              ESCALA: Óptimo (90-100%) • Aceptable (60-89%) • Deficiente (0-59%)
+            <div style="font-size:9px; color:#475569; text-align:center; margin-top:4px; font-weight:700;">
+              LLANTAS: 🔴 &lt;20% Deficiente • 🟠 20-40% Regular • 🔵 50-70% Bueno • 🟢 80-100% Excelente
             </div>
           </div>
         </div>
 
-        <!-- Tabla de Zonas Evaluadas y Costos de Daños -->
-        <div class="info-card" style="margin-bottom: 12px;">
+        <div class="info-card" style="margin-bottom: 10px;">
           <div class="info-card-title">📋 3. Evaluación Detallada por Zonas y Costos de Daños / Alistamiento</div>
           <table style="width:100%; border-collapse:collapse; font-size:11px;">
             <thead>
@@ -4202,6 +4448,11 @@ function printPeritajePDF(vehId) {
             ${escapeHtml(p.observaciones || 'Vehículo inspeccionado bajo estándares técnicos de Cartech Automóviles.')}
             ${p.docsNotas ? ` • Documentación: ${escapeHtml(p.docsNotas)}` : ''}
           </div>
+        </div>
+
+        <!-- 4. Cláusula Legal Predeterminada -->
+        <div class="legal-clause">
+          <strong>Nota:</strong> La presente inspección refleja únicamente el estado del vehículo a la fecha de su realización; no se contemplan ni garantizan fallas futuras.
         </div>
 
         <div class="signatures">
