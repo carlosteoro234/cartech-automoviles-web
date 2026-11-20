@@ -6,6 +6,7 @@
 
 const IS_PROD_ENV = location.hostname.includes('netlify.app');
 const STORAGE_KEY = IS_PROD_ENV ? 'autogest_pro_db_v1' : 'cartech_pruebas_db_v1';
+const AUTH_SESSION_KEY = IS_PROD_ENV ? 'cartech_auth_session_prod_v1' : 'cartech_auth_session_pruebas_v1';
 const CLOUD_SYNC_TOPIC = IS_PROD_ENV
   ? 'autogest_pro_sync_ctellez_94827104'
   : 'cartech_pruebas_sync_ctellez_94827104';
@@ -13,9 +14,11 @@ const CLOUD_SYNC_URL = `https://ntfy.sh/${CLOUD_SYNC_TOPIC}`;
 const DEVICE_ID = 'cartech-' + Math.random().toString(36).slice(2, 10);
 let isSyncingFromCloud = false;
 
+let currentActiveModule = 'home';
 let currentInventoryStatusTab = 'DISPONIBLES'; // 'DISPONIBLES' | 'En Compra' | 'Alistamiento' | 'Publicado' | 'Vendido' | 'TODOS'
 let currentProspectCategory = 'VENTA'; // 'VENTA' | 'COMPRA'
 let currentProspectStatusTab = 'TODOS'; // 'TODOS' | 'Nuevo' | 'En negociación' | 'Cerrado' | 'Frío'
+let currentDirectoryProfileTab = 'TODOS'; // 'TODOS' | 'CLIENTE_FINAL' | 'COMERCIANTE' | 'PROVEEDOR'
 let currentPeriodMode = 'MES'; // 'SEMANA' | 'MES' | 'ANIO' | 'TODOS'
 let selectedWhatsAppTemplateId = 'VENTA_1';
 
@@ -285,6 +288,7 @@ function getInitialData() {
     partners: getDefaultPartnersList(),
     vehicles: [],
     prospects: [],
+    directoryProfiles: [],
     ownExpenses: []
   };
 }
@@ -295,6 +299,7 @@ function ensureDBStructure(data) {
   if (!Array.isArray(data.partners)) data.partners = [];
   if (!Array.isArray(data.ownExpenses)) data.ownExpenses = [];
   if (!Array.isArray(data.prospects)) data.prospects = [];
+  if (!Array.isArray(data.directoryProfiles)) data.directoryProfiles = [];
   if (!Array.isArray(data.moneyLocations) || data.moneyLocations.length === 0) {
     data.moneyLocations = getDefaultMoneyLocations();
   }
@@ -1092,17 +1097,505 @@ function getScoreBarColor(pct) {
 }
 
 // ============================================================================
-// NAVEGACIÓN ENTRE MÓDULOS / HOJAS
+// SISTEMA DE SEGURIDAD Y AUTENTICACIÓN CLOUD (CORREO Y CONTRASEÑA SHA-256)
 // ============================================================================
-function switchSheet(sheetId) {
-  const sheets = ['inventario', 'peritaje', 'prospectos', 'socios', 'gastos-propios', 'dispositivos'];
-  sheets.forEach((id) => {
-    document.getElementById(`sheet-${id}`)?.classList.toggle('active', id === sheetId);
-    document.getElementById(`nav-${id}`)?.classList.toggle('active', id === sheetId);
-    document.getElementById(`excel-tab-${id}`)?.classList.toggle('active', id === sheetId);
-    document.getElementById(`mob-${id}`)?.classList.toggle('active', id === sheetId);
+const DEFAULT_ADMIN_EMAIL = 'carlos@cartech.co';
+const DEFAULT_ADMIN_PASS = 'Cartech2026';
+
+async function sha256Hex(text) {
+  const str = String(text || '');
+  if (window.crypto && window.crypto.subtle) {
+    const data = new TextEncoder().encode(str);
+    const hashBuf = await window.crypto.subtle.digest('SHA-256', data);
+    return Array.from(new Uint8Array(hashBuf))
+      .map((b) => b.toString(16).padStart(2, '0'))
+      .join('');
+  }
+  // Fallback determinístico si se abre en un contexto sin crypto.subtle
+  let h = 2166136261;
+  for (let i = 0; i < str.length; i++) {
+    h ^= str.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return 'fb-' + (h >>> 0).toString(16);
+}
+
+async function getEffectiveAuthConfig() {
+  if (db.authConfig && db.authConfig.email && db.authConfig.passwordHash) {
+    return db.authConfig;
+  }
+  const defaultHash = await sha256Hex(DEFAULT_ADMIN_PASS);
+  return {
+    email: DEFAULT_ADMIN_EMAIL,
+    passwordHash: defaultHash
+  };
+}
+
+function getActiveSession() {
+  try {
+    const raw = localStorage.getItem(AUTH_SESSION_KEY) || sessionStorage.getItem(AUTH_SESSION_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (parsed && parsed.email && parsed.loggedIn === true) return parsed;
+  } catch (_) {}
+  return null;
+}
+
+function isUserAuthenticated() {
+  return getActiveSession() !== null;
+}
+
+function applyAuthUIState() {
+  const authScreen = document.getElementById('auth-screen');
+  const appShell = document.getElementById('app-shell');
+  const envBadge = document.getElementById('auth-env-badge');
+  if (envBadge) {
+    envBadge.textContent = IS_PROD_ENV
+      ? '☁️ Producción Cartech Automóviles — Conexión Cloud Segura'
+      : '🧪 Entorno PRUEBAS — Conexión Cloud Segura';
+  }
+
+  const session = getActiveSession();
+  if (session) {
+    if (authScreen) authScreen.style.display = 'none';
+    if (appShell) appShell.style.display = 'flex';
+
+    const userPill = document.getElementById('topbar-user-email');
+    if (userPill) userPill.textContent = `👤 ${session.email}`;
+
+    const secEmailEl = document.getElementById('sec-current-email');
+    const secInputEl = document.getElementById('sec-new-email');
+    if (secEmailEl) secEmailEl.textContent = session.email;
+    if (secInputEl && !secInputEl.value) secInputEl.value = session.email;
+
+    updateAllViews();
+  } else {
+    if (authScreen) authScreen.style.display = 'flex';
+    if (appShell) appShell.style.display = 'none';
+  }
+}
+
+async function handleLoginSubmit(event) {
+  event.preventDefault();
+  const emailInput = (document.getElementById('login-email')?.value || '').trim().toLowerCase();
+  const passInput = document.getElementById('login-password')?.value || '';
+  const remember = document.getElementById('login-remember')?.checked !== false;
+  const errBox = document.getElementById('auth-error-msg');
+
+  if (errBox) errBox.style.display = 'none';
+
+  // Sincronizar primero con la nube para validar contra la contraseña más reciente
+  await pullFromCloud(false);
+
+  const authCfg = await getEffectiveAuthConfig();
+  const inputHash = await sha256Hex(passInput);
+
+  if (emailInput === authCfg.email.toLowerCase() && inputHash === authCfg.passwordHash) {
+    const sessionObj = {
+      loggedIn: true,
+      email: authCfg.email,
+      loginAt: Date.now()
+    };
+    if (remember) {
+      localStorage.setItem(AUTH_SESSION_KEY, JSON.stringify(sessionObj));
+    } else {
+      sessionStorage.setItem(AUTH_SESSION_KEY, JSON.stringify(sessionObj));
+    }
+    document.getElementById('login-password').value = '';
+    applyAuthUIState();
+    goHome();
+  } else {
+    if (errBox) {
+      errBox.textContent = '⚠️ Correo o contraseña incorrectos. Verifica tus datos e intenta nuevamente.';
+      errBox.style.display = 'block';
+    }
+  }
+}
+
+function handleLogout() {
+  localStorage.removeItem(AUTH_SESSION_KEY);
+  sessionStorage.removeItem(AUTH_SESSION_KEY);
+  currentActiveModule = 'home';
+  applyAuthUIState();
+}
+
+async function handleChangePassword(event) {
+  event.preventDefault();
+  if (!isUserAuthenticated()) return;
+
+  const newEmail = (document.getElementById('sec-new-email')?.value || '').trim().toLowerCase();
+  const newPass = document.getElementById('sec-new-pass')?.value || '';
+
+  if (!newEmail || newPass.length < 6) {
+    alert('Por favor ingresa un correo válido y una contraseña de al menos 6 caracteres.');
+    return;
+  }
+
+  const newHash = await sha256Hex(newPass);
+  db.authConfig = {
+    email: newEmail,
+    passwordHash: newHash,
+    updatedAt: Date.now()
+  };
+
+  // Actualizar sesión activa con el nuevo correo
+  const sessionObj = { loggedIn: true, email: newEmail, loginAt: Date.now() };
+  if (localStorage.getItem(AUTH_SESSION_KEY)) {
+    localStorage.setItem(AUTH_SESSION_KEY, JSON.stringify(sessionObj));
+  } else {
+    sessionStorage.setItem(AUTH_SESSION_KEY, JSON.stringify(sessionObj));
+  }
+
+  document.getElementById('sec-new-pass').value = '';
+  saveDB();
+  applyAuthUIState();
+  alert('✅ Correo y contraseña actualizados y sincronizados en la nube correctamente.');
+}
+
+// ============================================================================
+// NAVEGACIÓN POR MÓDULOS (SIN PESTAÑAS — PÁGINA PRINCIPAL + VOLVER AL INICIO)
+// ============================================================================
+function goHome() {
+  openModule('home');
+}
+
+function openModule(moduleId) {
+  // Protección obligatoria de rutas internas
+  if (!isUserAuthenticated()) {
+    applyAuthUIState();
+    return;
+  }
+
+  currentActiveModule = moduleId;
+  const allModules = ['home', 'inventario', 'peritaje', 'prospectos', 'directorio', 'socios', 'gastos-propios', 'dispositivos'];
+  allModules.forEach((id) => {
+    document.getElementById(`sheet-${id}`)?.classList.toggle('active', id === moduleId);
   });
+
+  const backBtn = document.getElementById('topbar-btn-home');
+  if (backBtn) {
+    backBtn.style.display = moduleId === 'home' ? 'none' : 'inline-flex';
+  }
+
+  if (moduleId === 'home') renderHomeDashboard();
+  if (moduleId === 'directorio') renderDirectorySheet();
   window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+function switchSheet(sheetId) {
+  openModule(sheetId);
+}
+
+function renderHomeDashboard() {
+  const cap = calculateGlobalCapitalBreakdown();
+  const countDisponibles = db.vehicles.filter((v) => v.estado !== 'Vendido').length;
+  const peritadosCount = db.vehicles.filter((v) => v.peritaje && v.peritaje.veredicto).length;
+  const dirCount = (db.directoryProfiles || []).length;
+
+  const kpisEl = document.getElementById('home-summary-kpis');
+  if (kpisEl) {
+    kpisEl.innerHTML = `
+      <div class="kpi-card">
+        <div class="kpi-label"><span>Vehículos Disponibles</span> <span>🚙</span></div>
+        <div class="kpi-value">${formatNumberWithDots(countDisponibles)} carros</div>
+        <div class="kpi-sub">Total histórico en inventario: ${formatNumberWithDots(db.vehicles.length)}</div>
+      </div>
+      <div class="kpi-card kpi-purple">
+        <div class="kpi-label"><span>Capital Invertido Propio (Carlos)</span> <span>👑</span></div>
+        <div class="kpi-value" style="color: #38bdf8;">${formatCOP(cap.capitalInvertidoPropioCarlos)}</div>
+        <div class="kpi-sub">Capital Global: ${formatCOP(cap.capitalTotalInvertidoGlobal)}</div>
+      </div>
+      <div class="kpi-card kpi-green">
+        <div class="kpi-label"><span>Dinero Libre Disponible</span> <span>🏦</span></div>
+        <div class="kpi-value" style="color: #34d399;">${formatCOP(cap.liquidezTotalDisponible)}</div>
+        <div class="kpi-sub">Bancos + Efectivo físico</div>
+      </div>
+      <div class="kpi-card kpi-amber">
+        <div class="kpi-label"><span>Prospectos y Directorio</span> <span>📇</span></div>
+        <div class="kpi-value">${formatNumberWithDots((db.prospects || []).length + dirCount)} contactos</div>
+        <div class="kpi-sub">Prospectos: ${(db.prospects || []).length} • Directorio: ${dirCount}</div>
+      </div>
+    `;
+  }
+
+  const bInv = document.getElementById('home-badge-inventario');
+  const bPer = document.getElementById('home-badge-peritaje');
+  const bPro = document.getElementById('home-badge-prospectos');
+  const bDir = document.getElementById('home-badge-directorio');
+  const bSoc = document.getElementById('home-badge-socios');
+  const bGas = document.getElementById('home-badge-gastos');
+
+  if (bInv) bInv.textContent = `${formatNumberWithDots(db.vehicles.length)} vehículos`;
+  if (bPer) bPer.textContent = `${formatNumberWithDots(peritadosCount)} peritados`;
+  if (bPro) bPro.textContent = `${formatNumberWithDots((db.prospects || []).length)} prospectos`;
+  if (bDir) bDir.textContent = `${formatNumberWithDots(dirCount)} perfiles`;
+  if (bSoc) bSoc.textContent = `${formatNumberWithDots(db.partners.length)} socios`;
+  if (bGas) bGas.textContent = `${formatNumberWithDots(db.ownExpenses.length)} gastos`;
+}
+
+// ============================================================================
+// NUEVO MÓDULO: DIRECTORIO Y PERFILES (CLIENTE FINAL / COMERCIANTE / PROVEEDOR)
+// ============================================================================
+function setDirectoryProfileTab(tipoVal) {
+  currentDirectoryProfileTab = tipoVal;
+  const sel = document.getElementById('filter-dir-tipo');
+  if (sel && sel.value !== tipoVal) sel.value = tipoVal;
+  renderDirectorySheet();
+}
+
+function renderDirectorySheet() {
+  const list = Array.isArray(db.directoryProfiles) ? db.directoryProfiles : [];
+  const search = (document.getElementById('filter-dir-search')?.value || '').toLowerCase().trim();
+
+  const countCF = list.filter((x) => x.tipo === 'CLIENTE_FINAL').length;
+  const countCom = list.filter((x) => x.tipo === 'COMERCIANTE').length;
+  const countProv = list.filter((x) => x.tipo === 'PROVEEDOR').length;
+
+  const kpisEl = document.getElementById('directorio-kpis');
+  if (kpisEl) {
+    kpisEl.innerHTML = `
+      <div class="kpi-card">
+        <div class="kpi-label"><span>Total en Directorio</span> <span>📇</span></div>
+        <div class="kpi-value">${formatNumberWithDots(list.length)} perfiles</div>
+        <div class="kpi-sub">Contactos sincronizados en la nube</div>
+      </div>
+      <div class="kpi-card kpi-purple">
+        <div class="kpi-label"><span>Clientes Finales</span> <span>👤</span></div>
+        <div class="kpi-value">${formatNumberWithDots(countCF)}</div>
+        <div class="kpi-sub">Compradores e interesados finales</div>
+      </div>
+      <div class="kpi-card kpi-green">
+        <div class="kpi-label"><span>Clientes Comerciantes</span> <span>🏢</span></div>
+        <div class="kpi-value">${formatNumberWithDots(countCom)}</div>
+        <div class="kpi-sub">Vitrinas, compra/venta e intermediarios</div>
+      </div>
+      <div class="kpi-card kpi-amber">
+        <div class="kpi-label"><span>Proveedores y Talleres</span> <span>🔧</span></div>
+        <div class="kpi-value">${formatNumberWithDots(countProv)}</div>
+        <div class="kpi-sub">Mecánica, latonería, repuestos y trámites</div>
+      </div>
+    `;
+  }
+
+  const tabsEl = document.getElementById('directorio-profile-tabs');
+  if (tabsEl) {
+    const tabs = [
+      { id: 'TODOS', label: '📋 Todos', count: list.length },
+      { id: 'CLIENTE_FINAL', label: '👤 Cliente Final', count: countCF },
+      { id: 'COMERCIANTE', label: '🏢 Cliente Comerciante', count: countCom },
+      { id: 'PROVEEDOR', label: '🔧 Proveedor', count: countProv }
+    ];
+    tabsEl.innerHTML = tabs
+      .map(
+        (t) => `
+        <button class="status-tab-pill ${currentDirectoryProfileTab === t.id ? 'active' : ''}" onclick="setDirectoryProfileTab('${t.id}')">
+          <span>${t.label}</span>
+          <span class="status-tab-count">${formatNumberWithDots(t.count)}</span>
+        </button>
+      `
+      )
+      .join('');
+  }
+
+  const filtered = list.filter((item) => {
+    const matchType = currentDirectoryProfileTab === 'TODOS' || item.tipo === currentDirectoryProfileTab;
+    const blob = [
+      item.nombre,
+      item.telefono,
+      item.documento,
+      item.correo,
+      item.ciudad,
+      item.vehiculoInteres,
+      item.contactoPrincipal,
+      item.especialidad,
+      item.direccion,
+      item.historialNegocios,
+      item.notas
+    ]
+      .join(' ')
+      .toLowerCase();
+    const matchSearch = !search || blob.includes(search);
+    return matchType && matchSearch;
+  });
+
+  const countLabel = document.getElementById('directorio-count-label');
+  if (countLabel) {
+    countLabel.textContent = `Mostrando ${formatNumberWithDots(filtered.length)} de ${formatNumberWithDots(list.length)} contactos`;
+  }
+
+  const tbody = document.getElementById('directorio-tbody');
+  if (!tbody) return;
+
+  if (filtered.length === 0) {
+    tbody.innerHTML = `
+      <tr>
+        <td colspan="6" style="text-align: center; padding: 28px; color: var(--text-muted);">
+          No hay contactos en este filtro. Haz clic en <strong>"➕ Nuevo Contacto / Perfil"</strong> para agregar uno.
+        </td>
+      </tr>
+    `;
+    return;
+  }
+
+  tbody.innerHTML = filtered
+    .map((item) => {
+      const cleanPhone = String(item.telefono || '').replace(/[^0-9]/g, '');
+      const waPhone = cleanPhone.length === 10 ? `57${cleanPhone}` : cleanPhone;
+      const waLink = waPhone
+        ? `https://wa.me/${waPhone}?text=${encodeURIComponent(`¡Hola ${item.contactoPrincipal || item.nombre}! Te saluda Carlos de Cartech Automóviles 👋.`)}`
+        : '#';
+
+      let badgeHtml = `<span class="badge profile-badge-cliente">👤 Cliente Final</span>`;
+      let extraColHtml = '';
+      let subNameHtml = '';
+
+      if (item.tipo === 'CLIENTE_FINAL') {
+        subNameHtml = item.documento ? `CC/Doc: ${escapeHtml(item.documento)}` : '';
+        extraColHtml = item.vehiculoInteres
+          ? `<div>🚙 <strong>${escapeHtml(item.vehiculoInteres)}</strong></div>`
+          : `<span style="color: var(--text-muted);">Sin vehículo asociado aún</span>`;
+      } else if (item.tipo === 'COMERCIANTE') {
+        badgeHtml = `<span class="badge profile-badge-comerciante">🏢 Comerciante</span>`;
+        subNameHtml = item.contactoPrincipal ? `Contacto: ${escapeHtml(item.contactoPrincipal)}` : '';
+        extraColHtml = `
+          <div>🏷️ <strong>${escapeHtml(item.especialidad || 'Gama general')}</strong></div>
+          ${item.historialNegocios ? `<div style="font-size: 11.5px; color: var(--text-muted); margin-top: 2px;">${escapeHtml(item.historialNegocios)}</div>` : ''}
+        `;
+      } else if (item.tipo === 'PROVEEDOR') {
+        badgeHtml = `<span class="badge profile-badge-proveedor">🔧 Proveedor</span>`;
+        const starsCount = Math.min(5, Math.max(1, Number(item.calificacion) || 5));
+        const starsStr = '★'.repeat(starsCount) + '☆'.repeat(5 - starsCount);
+        extraColHtml = `
+          <div>🛠️ <strong>${escapeHtml(item.especialidad || 'Servicio general')}</strong></div>
+          <div class="star-rating-display" title="${starsCount} de 5 estrellas">${starsStr} <span style="font-size: 11px; color: var(--text-muted);">(${starsCount}/5)</span></div>
+        `;
+      }
+
+      return `
+        <tr>
+          <td>
+            <div style="margin-bottom: 4px;">${badgeHtml}</div>
+            <div style="font-weight: 700; color: #f8fafc;">${escapeHtml(item.nombre)}</div>
+            ${subNameHtml ? `<div style="font-size: 11.5px; color: var(--text-muted);">${subNameHtml}</div>` : ''}
+          </td>
+          <td>
+            <div style="font-weight: 600; font-family: monospace;">📞 ${escapeHtml(item.telefono)}</div>
+            ${item.correo ? `<div style="font-size: 11.5px; color: var(--text-muted);">✉️ ${escapeHtml(item.correo)}</div>` : ''}
+            ${waPhone ? `<a href="${waLink}" target="_blank" style="display:inline-block; margin-top:4px; font-size:12px; color:#34d399; font-weight:700; text-decoration:none;">💬 Abrir WhatsApp</a>` : ''}
+          </td>
+          <td>
+            <div style="font-weight: 600;">${escapeHtml(item.ciudad || item.direccion || '-')}</div>
+            ${item.tipo === 'PROVEEDOR' && item.direccion ? `<div style="font-size: 11.5px; color: var(--text-muted);">📍 ${escapeHtml(item.direccion)}</div>` : ''}
+          </td>
+          <td>${extraColHtml}</td>
+          <td style="max-width: 240px; font-size: 12.5px; color: #cbd5e1;">
+            ${escapeHtml(item.notas || '-')}
+          </td>
+          <td>
+            <div style="display: flex; gap: 6px;">
+              <button class="btn btn-outline btn-sm" onclick="openDirectoryModal('${item.id}')">✏️ Editar</button>
+              <button class="btn btn-danger-ghost btn-sm" onclick="deleteDirectoryProfile('${item.id}')">🗑️</button>
+            </div>
+          </td>
+        </tr>
+      `;
+    })
+    .join('');
+}
+
+function onDirectoryProfileTypeChange() {
+  const tipo = document.getElementById('dir-tipo')?.value || 'CLIENTE_FINAL';
+  document.getElementById('dir-fields-cliente-final').style.display = tipo === 'CLIENTE_FINAL' ? 'flex' : 'none';
+  document.getElementById('dir-fields-comerciante').style.display = tipo === 'COMERCIANTE' ? 'flex' : 'none';
+  document.getElementById('dir-fields-proveedor').style.display = tipo === 'PROVEEDOR' ? 'flex' : 'none';
+
+  const labelNombre = document.getElementById('label-dir-nombre');
+  if (labelNombre) {
+    if (tipo === 'CLIENTE_FINAL') labelNombre.textContent = 'Nombre Completo *';
+    else if (tipo === 'COMERCIANTE') labelNombre.textContent = 'Nombre / Razón Social o Vitrina *';
+    else labelNombre.textContent = 'Nombre del Proveedor o Empresa *';
+  }
+}
+
+function openDirectoryModal(profileId = null) {
+  const form = document.getElementById('form-directory-profile');
+  form.reset();
+  initColombiaCatalogUI();
+
+  if (profileId) {
+    const item = (db.directoryProfiles || []).find((x) => x.id === profileId);
+    if (!item) return;
+    document.getElementById('modal-dir-title').textContent = `✏️ Editar Perfil: ${item.nombre}`;
+    document.getElementById('dir-id').value = item.id;
+    document.getElementById('dir-tipo').value = item.tipo || 'CLIENTE_FINAL';
+    document.getElementById('dir-nombre').value = item.nombre || '';
+    document.getElementById('dir-telefono').value = item.telefono || '';
+    document.getElementById('dir-cf-documento').value = item.documento || '';
+    document.getElementById('dir-cf-correo').value = item.correo || '';
+    document.getElementById('dir-cf-ciudad').value = item.ciudad || '';
+    document.getElementById('dir-cf-vehiculo').value = item.vehiculoInteres || '';
+    document.getElementById('dir-com-contacto').value = item.contactoPrincipal || '';
+    document.getElementById('dir-com-ciudad').value = item.ciudad || '';
+    document.getElementById('dir-com-especialidad').value = item.especialidad || '';
+    document.getElementById('dir-com-historial').value = item.historialNegocios || '';
+    document.getElementById('dir-prov-especialidad').value = item.especialidad || 'Mecánica General';
+    document.getElementById('dir-prov-direccion').value = item.direccion || '';
+    document.getElementById('dir-prov-calificacion').value = String(item.calificacion || 5);
+    document.getElementById('dir-notas').value = item.notas || '';
+  } else {
+    document.getElementById('modal-dir-title').textContent = '📇 Nuevo Contacto en Directorio y Perfiles';
+    document.getElementById('dir-id').value = '';
+    const defaultTipo = currentDirectoryProfileTab !== 'TODOS' ? currentDirectoryProfileTab : 'CLIENTE_FINAL';
+    document.getElementById('dir-tipo').value = defaultTipo;
+  }
+
+  onDirectoryProfileTypeChange();
+  document.getElementById('modal-directory-profile').classList.add('open');
+}
+
+function saveDirectoryProfile(event) {
+  event.preventDefault();
+  const id = document.getElementById('dir-id').value;
+  const tipo = document.getElementById('dir-tipo').value;
+
+  const payload = {
+    id: id || 'dir-' + Date.now(),
+    tipo: tipo,
+    nombre: document.getElementById('dir-nombre').value.trim(),
+    telefono: document.getElementById('dir-telefono').value.trim(),
+    documento: tipo === 'CLIENTE_FINAL' ? document.getElementById('dir-cf-documento').value.trim() : '',
+    correo: tipo === 'CLIENTE_FINAL' ? document.getElementById('dir-cf-correo').value.trim() : '',
+    ciudad: tipo === 'CLIENTE_FINAL'
+      ? document.getElementById('dir-cf-ciudad').value.trim()
+      : (tipo === 'COMERCIANTE' ? document.getElementById('dir-com-ciudad').value.trim() : ''),
+    vehiculoInteres: tipo === 'CLIENTE_FINAL' ? document.getElementById('dir-cf-vehiculo').value.trim() : '',
+    contactoPrincipal: tipo === 'COMERCIANTE' ? document.getElementById('dir-com-contacto').value.trim() : '',
+    especialidad: tipo === 'COMERCIANTE'
+      ? document.getElementById('dir-com-especialidad').value.trim()
+      : (tipo === 'PROVEEDOR' ? document.getElementById('dir-prov-especialidad').value : ''),
+    historialNegocios: tipo === 'COMERCIANTE' ? document.getElementById('dir-com-historial').value.trim() : '',
+    direccion: tipo === 'PROVEEDOR' ? document.getElementById('dir-prov-direccion').value.trim() : '',
+    calificacion: tipo === 'PROVEEDOR' ? Number(document.getElementById('dir-prov-calificacion').value) || 5 : 0,
+    notas: document.getElementById('dir-notas').value.trim(),
+    updatedAt: Date.now()
+  };
+
+  if (!Array.isArray(db.directoryProfiles)) db.directoryProfiles = [];
+  if (id) {
+    const idx = db.directoryProfiles.findIndex((x) => x.id === id);
+    if (idx !== -1) db.directoryProfiles[idx] = payload;
+  } else {
+    db.directoryProfiles.unshift(payload);
+  }
+
+  saveDB();
+  closeModal('modal-directory-profile');
+}
+
+function deleteDirectoryProfile(profileId) {
+  if (!confirm('¿Seguro que deseas eliminar este perfil del Directorio?')) return;
+  db.directoryProfiles = (db.directoryProfiles || []).filter((x) => x.id !== profileId);
+  saveDB();
 }
 
 // ============================================================================
@@ -4192,6 +4685,19 @@ function exportToExcel() {
     Valor_COP: formatCOP(e.valor)
   }));
 
+  const hojaDirectorio = (db.directoryProfiles || []).map((d) => ({
+    Tipo_Perfil: d.tipo === 'CLIENTE_FINAL' ? 'Cliente Final' : (d.tipo === 'COMERCIANTE' ? 'Cliente Comerciante' : 'Proveedor'),
+    Nombre_o_Empresa: d.nombre,
+    Telefono_WhatsApp: d.telefono,
+    Documento: d.documento || '-',
+    Correo: d.correo || '-',
+    Ciudad_o_Direccion: d.ciudad || d.direccion || '-',
+    Contacto_Principal: d.contactoPrincipal || '-',
+    Especialidad_o_Vehiculo: d.especialidad || d.vehiculoInteres || '-',
+    Calificacion_Proveedor: d.tipo === 'PROVEEDOR' ? `${d.calificacion || 5}/5` : '-',
+    Historial_y_Notas: [d.historialNegocios, d.notas].filter(Boolean).join(' | ')
+  }));
+
   const fileName = `Cartech_Automoviles_${getTodayISO()}.xlsx`;
 
   if (typeof XLSX !== 'undefined') {
@@ -4203,6 +4709,7 @@ function exportToExcel() {
     XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(hojaUbicacionesDinero), '5_Ubicaciones_Dinero_Libre');
     XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(hojaGastosVehiculos.length ? hojaGastosVehiculos : [{ Info: 'Sin gastos' }]), '6_Gastos_Carros');
     XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(hojaGastosPropios.length ? hojaGastosPropios : [{ Info: 'Sin gastos propios' }]), '7_Gastos_Propios');
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(hojaDirectorio.length ? hojaDirectorio : [{ Info: 'Sin contactos en directorio' }]), '8_Directorio_y_Perfiles');
 
     XLSX.writeFile(wb, fileName);
   } else {
@@ -4281,30 +4788,18 @@ function escapeHtml(str) {
 
 function updateAllViews() {
   db = ensureDBStructure(db);
-  const peritadosCount = db.vehicles.filter((v) => v.peritaje && v.peritaje.veredicto).length;
-
-  const bInv = document.getElementById('badge-inventario');
-  const bPer = document.getElementById('badge-peritaje');
-  const bPro = document.getElementById('badge-prospectos');
-  const bSoc = document.getElementById('badge-socios');
-  const bGas = document.getElementById('badge-gastos');
-
-  if (bInv) bInv.textContent = formatNumberWithDots(db.vehicles.length);
-  if (bPer) bPer.textContent = formatNumberWithDots(peritadosCount);
-  if (bPro) bPro.textContent = formatNumberWithDots((db.prospects || []).length);
-  if (bSoc) bSoc.textContent = formatNumberWithDots(db.partners.length);
-  if (bGas) bGas.textContent = formatNumberWithDots(db.ownExpenses.length);
-
+  renderHomeDashboard();
   renderInventory();
   renderPeritajeSheet();
   renderProspectsSheet();
+  renderDirectorySheet();
   renderPartnersSheet();
   renderOwnExpenses();
 }
 
-// Inicialización 100% Cloud
+// Inicialización 100% Cloud con protección obligatoria de inicio de sesión
 document.addEventListener('DOMContentLoaded', () => {
-  updateAllViews();
+  applyAuthUIState();
   pullFromCloud();
   startRealtimeCloudListener();
   setInterval(() => {

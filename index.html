@@ -14,85 +14,216 @@
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 </head>
 <body>
-  <div class="app-layout">
-    <!-- Barra Lateral (Escritorio) -->
-    <aside class="sidebar">
-      <div class="brand">
+  <!-- =========================================================
+       PANTALLA DE INICIO DE SESIÓN OBLIGATORIA (SEGURIDAD CLOUD)
+       ========================================================= -->
+  <div class="auth-screen" id="auth-screen">
+    <div class="auth-card">
+      <div class="auth-logo-wrap">
         <div class="cartech-logo-box">
           <div class="cartech-logo-split">
-            <span class="cartech-logo-car">CAR</span>
-            <span class="cartech-logo-tech">TECH</span>
+            <span class="cartech-logo-car" style="font-size: 26px; padding: 5px 14px;">CAR</span>
+            <span class="cartech-logo-tech" style="font-size: 26px; padding: 5px 14px;">TECH</span>
           </div>
-          <span class="cartech-logo-sub">COMERCIALIZADORA DE VEHÍCULOS</span>
+          <span class="cartech-logo-sub" style="font-size: 10.5px; margin-top: 6px;">COMERCIALIZADORA DE VEHÍCULOS</span>
         </div>
-        <span style="font-size: 11px; color: #60a5fa; font-weight: 600;">100% Cloud • PC &amp; Móvil</span>
+        <div style="text-align: center; margin-top: 4px;">
+          <h2 style="font-size: 18px; color: #f8fafc;">Acceso Seguro a la Plataforma</h2>
+          <p style="font-size: 12.5px; color: var(--text-muted); margin-top: 2px;">Inicia sesión con tu correo y contraseña autorizados</p>
+        </div>
       </div>
 
-      <nav class="nav-sheets">
-        <div class="nav-section-label">Módulos de Cartech</div>
-        <button class="sheet-tab-btn active" onclick="switchSheet('inventario')" id="nav-inventario">
-          <span>🚙</span>
-          <span>Inventario y Capital</span>
-          <span class="sheet-badge" id="badge-inventario">0</span>
-        </button>
-        <button class="sheet-tab-btn" onclick="switchSheet('peritaje')" id="nav-peritaje">
-          <span>📋</span>
-          <span>Hojas de Peritaje</span>
-          <span class="sheet-badge" id="badge-peritaje">0</span>
-        </button>
-        <button class="sheet-tab-btn" onclick="switchSheet('prospectos')" id="nav-prospectos">
-          <span>👥</span>
-          <span>Prospectos (Venta/Compra)</span>
-          <span class="sheet-badge" id="badge-prospectos">0</span>
-        </button>
-        <button class="sheet-tab-btn" onclick="switchSheet('socios')" id="nav-socios">
-          <span>🤝</span>
-          <span>Socios y Capital</span>
-          <span class="sheet-badge" id="badge-socios">0</span>
-        </button>
-        <button class="sheet-tab-btn" onclick="switchSheet('gastos-propios')" id="nav-gastos-propios">
-          <span>🏦</span>
-          <span>Liquidez y Gastos</span>
-          <span class="sheet-badge" id="badge-gastos">0</span>
-        </button>
+      <div class="auth-error-msg" id="auth-error-msg"></div>
 
-        <div class="nav-section-label" style="margin-top: 10px;">Nube y Reportes</div>
-        <button class="sheet-tab-btn" onclick="switchSheet('dispositivos')" id="nav-dispositivos">
-          <span>☁️</span>
-          <span>Nube / Excel / App</span>
+      <form id="form-login" onsubmit="handleLoginSubmit(event)" style="display: flex; flex-direction: column; gap: 14px;">
+        <div class="form-group">
+          <label>Correo Electrónico *</label>
+          <input type="email" id="login-email" placeholder="Ej: carlos@cartech.co" required autocomplete="username" />
+        </div>
+        <div class="form-group">
+          <label>Contraseña *</label>
+          <input type="password" id="login-password" placeholder="Ingresa tu contraseña" required autocomplete="current-password" />
+        </div>
+        <label style="display: flex; align-items: center; gap: 8px; font-size: 12.5px; color: #cbd5e1; cursor: pointer;">
+          <input type="checkbox" id="login-remember" checked style="width: auto;" />
+          <span>Mantener sesión iniciada en este dispositivo</span>
+        </label>
+        <button type="submit" class="btn btn-primary" style="width: 100%; padding: 12px; font-size: 14.5px;">
+          🔐 Ingresar a Cartech Automóviles
         </button>
-      </nav>
+      </form>
 
-      <div class="sidebar-footer">
-        <div id="save-status-indicator" style="font-size: 12px; color: #34d399; text-align: center; padding: 7px; background: rgba(16, 185, 129, 0.12); border-radius: 6px; border: 1px solid rgba(16, 185, 129, 0.3);">
+      <div style="text-align: center; font-size: 11.5px; color: var(--text-muted); border-top: 1px solid var(--border-color); padding-top: 12px;">
+        <span id="auth-env-badge">☁️ Conexión Cloud Segura</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- =========================================================
+       CONTENEDOR PRINCIPAL PROTEGIDO (SOLO VISIBLE CON SESIÓN ACTIVA)
+       ========================================================= -->
+  <div id="app-shell" style="display: none; min-height: 100vh; flex-direction: column;">
+    <!-- Barra Superior Corporativa Fija -->
+    <header class="app-topbar">
+      <div class="topbar-left">
+        <div class="topbar-brand-click" onclick="goHome()" title="Ir a la Página Principal">
+          <div class="cartech-logo-box">
+            <div class="cartech-logo-split">
+              <span class="cartech-logo-car" style="font-size: 18px; padding: 2px 8px;">CAR</span>
+              <span class="cartech-logo-tech" style="font-size: 18px; padding: 2px 8px;">TECH</span>
+            </div>
+            <span class="cartech-logo-sub" style="font-size: 8px; margin-top: 2px;">COMERCIALIZADORA DE VEHÍCULOS</span>
+          </div>
+        </div>
+        <button class="btn btn-outline btn-sm" id="topbar-btn-home" onclick="goHome()" style="display: none;">
+          ⬅️ Volver al Inicio
+        </button>
+      </div>
+
+      <div class="topbar-right">
+        <div id="save-status-indicator" style="font-size: 11.5px; color: #34d399; padding: 5px 10px; background: rgba(16, 185, 129, 0.12); border-radius: 999px; border: 1px solid rgba(16, 185, 129, 0.3); font-weight: 600;">
           ☁️ Nube Cartech Activa
         </div>
-        <button class="btn btn-success" onclick="exportToExcel()" style="width: 100%;">
-          📊 Descargar Excel (.xlsx)
-        </button>
-        <button class="btn btn-outline btn-sm" onclick="forceCloudSyncNow()" style="width: 100%;">
-          🔄 Forzar Sincronización Cloud
-        </button>
-        <button class="btn btn-danger-ghost btn-sm" onclick="clearDemoData()" style="width: 100%;">
-          🧹 Limpiar Base de Datos
+        <span class="topbar-user-pill" id="topbar-user-email">👤 carlos@cartech.co</span>
+        <button class="btn btn-danger-ghost btn-sm" onclick="handleLogout()">
+          🚪 Cerrar sesión
         </button>
       </div>
-    </aside>
+    </header>
 
     <!-- Contenido Principal -->
     <main class="main-content">
 
       <!-- ==========================================
-           HOJA 1: INVENTARIO DE VEHÍCULOS Y CAPITAL INVERTIDO
+           PÁGINA PRINCIPAL: MENÚ DE MÓDULOS (SIN PESTAÑAS)
            ========================================== -->
-      <section class="sheet-view active" id="sheet-inventario">
+      <section class="sheet-view active" id="sheet-home">
+        <div class="home-hero">
+          <div>
+            <h2 style="font-size: 24px; font-weight: 800; color: #f8fafc; margin-bottom: 4px;">
+              Panel Principal — Cartech Automóviles
+            </h2>
+            <p style="font-size: 13.5px; color: var(--text-muted);">
+              Selecciona un módulo para gestionar tu inventario, peritajes, clientes, directorio, socios y finanzas en tiempo real.
+            </p>
+          </div>
+          <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+            <button class="btn btn-outline btn-sm" onclick="forceCloudSyncNow()" id="btn-cloud-sync">☁️ Nube Sincronizada</button>
+            <button class="btn btn-success btn-sm" onclick="exportToExcel()">📊 Descargar Excel (.xlsx)</button>
+          </div>
+        </div>
+
+        <!-- Resumen Financiero Rápido en la Página Principal -->
+        <div class="kpi-grid" id="home-summary-kpis"></div>
+
+        <!-- Grid de Tarjetas de Módulos Independientes -->
+        <div class="modules-grid">
+          <button class="module-card" onclick="openModule('inventario')">
+            <div class="module-card-top">
+              <div class="module-card-icon">🚙</div>
+              <span class="badge condicion-nuevo" id="home-badge-inventario">0 vehículos</span>
+            </div>
+            <h3>Inventario y Capital</h3>
+            <p>Listado maestro de vehículos nuevos y usados, estados rápidos, gastos por carro, capital propio vs. socios y liquidación PDF.</p>
+            <div class="module-card-footer">
+              <span>Abrir módulo</span>
+              <span>→</span>
+            </div>
+          </button>
+
+          <button class="module-card mod-cyan" onclick="openModule('peritaje')">
+            <div class="module-card-top">
+              <div class="module-card-icon">📋</div>
+              <span class="badge status-publicado" id="home-badge-peritaje">0 peritados</span>
+            </div>
+            <h3>Hojas de Peritaje</h3>
+            <p>Inspección compacta por zonas, llantas de 10% en 10%, costos manuales de daños y reporte técnico imprimible en PDF.</p>
+            <div class="module-card-footer">
+              <span>Abrir módulo</span>
+              <span>→</span>
+            </div>
+          </button>
+
+          <button class="module-card mod-green" onclick="openModule('prospectos')">
+            <div class="module-card-top">
+              <div class="module-card-icon">👥</div>
+              <span class="badge status-vendido" id="home-badge-prospectos">0 prospectos</span>
+            </div>
+            <h3>Prospectos (Venta y Compra)</h3>
+            <p>CRM de clientes compradores, captación de dueños ofreciendo carro, seguimiento comercial y plantillas rápidas de WhatsApp.</p>
+            <div class="module-card-footer">
+              <span>Abrir módulo</span>
+              <span>→</span>
+            </div>
+          </button>
+
+          <button class="module-card mod-purple" onclick="openModule('directorio')">
+            <div class="module-card-top">
+              <div class="module-card-icon">📇</div>
+              <span class="badge status-compra" id="home-badge-directorio">0 perfiles</span>
+            </div>
+            <h3>Directorio y Perfiles</h3>
+            <p>Base de contactos clasificada en Cliente Final, Cliente Comerciante y Proveedores (talleres, latonería, repuestos y trámites).</p>
+            <div class="module-card-footer">
+              <span>Abrir módulo</span>
+              <span>→</span>
+            </div>
+          </button>
+
+          <button class="module-card mod-amber" onclick="openModule('socios')">
+            <div class="module-card-top">
+              <div class="module-card-icon">🤝</div>
+              <span class="badge status-alistamiento" id="home-badge-socios">0 socios</span>
+            </div>
+            <h3>Finanzas y Socios</h3>
+            <p>Capital invertido por socio en tiempo real (Inversionistas 50/50 y Socios de Negocio), utilidades y actas PDF de liquidación.</p>
+            <div class="module-card-footer">
+              <span>Abrir módulo</span>
+              <span>→</span>
+            </div>
+          </button>
+
+          <button class="module-card mod-green" onclick="openModule('gastos-propios')">
+            <div class="module-card-top">
+              <div class="module-card-icon">🏦</div>
+              <span class="badge status-vendido" id="home-badge-gastos">0 gastos</span>
+            </div>
+            <h3>Liquidez y Gastos Propios</h3>
+            <p>Ubicaciones de dinero libre (bancos y efectivo físico), descuento automático al gastar y filtros por semana, mes o año.</p>
+            <div class="module-card-footer">
+              <span>Abrir módulo</span>
+              <span>→</span>
+            </div>
+          </button>
+
+          <button class="module-card" onclick="openModule('dispositivos')">
+            <div class="module-card-top">
+              <div class="module-card-icon">☁️</div>
+              <span class="badge condicion-usado">Seguridad • Excel</span>
+            </div>
+            <h3>Nube, Seguridad y Excel</h3>
+            <p>Gestión de contraseña y usuarios de acceso, sincronización en la nube, copias de seguridad JSON y exportación completa a Excel.</p>
+            <div class="module-card-footer">
+              <span>Abrir módulo</span>
+              <span>→</span>
+            </div>
+          </button>
+        </div>
+      </section>
+
+      <!-- ==========================================
+           MÓDULO 1: INVENTARIO DE VEHÍCULOS Y CAPITAL INVERTIDO
+           ========================================== -->
+      <section class="sheet-view" id="sheet-inventario">
+        <div class="module-back-bar">
+          <button class="btn btn-outline btn-sm" onclick="goHome()">⬅️ Volver al Inicio</button>
+        </div>
         <div class="top-bar">
           <div class="page-title">
-            <h2>Cartech Automóviles — Inventario Maestro y Capital en Tiempo Real</h2>
+            <h2>Inventario Maestro y Capital en Tiempo Real</h2>
             <p>Separación estricta de Capital Propio (Carlos) vs. Capital de Socios, peritaje y plantillas WhatsApp.</p>
           </div>
           <div class="top-actions">
-            <button class="btn btn-outline" onclick="forceCloudSyncNow()" id="btn-cloud-sync">☁️ Nube Sincronizada</button>
             <button class="btn btn-outline" onclick="openMoneyLocationModal()">🏦 + Ubicación Dinero Libre</button>
             <button class="btn btn-primary" onclick="openVehicleModal()">➕ Nuevo Vehículo</button>
           </div>
@@ -175,9 +306,12 @@
       </section>
 
       <!-- ==========================================
-           HOJA 2: MÓDULO DE HOJA DE PERITAJE
+           MÓDULO 2: HOJA DE PERITAJE
            ========================================== -->
       <section class="sheet-view" id="sheet-peritaje">
+        <div class="module-back-bar">
+          <button class="btn btn-outline btn-sm" onclick="goHome()">⬅️ Volver al Inicio</button>
+        </div>
         <div class="top-bar">
           <div class="page-title">
             <h2>Hoja de Peritaje Técnico — Cartech Automóviles</h2>
@@ -234,9 +368,12 @@
       </section>
 
       <!-- ==========================================
-           HOJA 3: MÓDULO DE PROSPECTOS (VENTA Y COMPRA + WHATSAPP)
+           MÓDULO 3: PROSPECTOS (VENTA Y COMPRA + WHATSAPP)
            ========================================== -->
       <section class="sheet-view" id="sheet-prospectos">
+        <div class="module-back-bar">
+          <button class="btn btn-outline btn-sm" onclick="goHome()">⬅️ Volver al Inicio</button>
+        </div>
         <div class="top-bar">
           <div class="page-title">
             <h2>CRM de Prospectos de Venta y Compra + Plantillas WhatsApp</h2>
@@ -288,9 +425,77 @@
       </section>
 
       <!-- ==========================================
-           HOJA 4: GESTIÓN DE SOCIOS, CAPITAL INVERTIDO POR SOCIO Y GANANCIAS
+           MÓDULO NUEVO: DIRECTORIO Y PERFILES (CLIENTE FINAL / COMERCIANTE / PROVEEDOR)
+           ========================================== -->
+      <section class="sheet-view" id="sheet-directorio">
+        <div class="module-back-bar">
+          <button class="btn btn-outline btn-sm" onclick="goHome()">⬅️ Volver al Inicio</button>
+        </div>
+        <div class="top-bar">
+          <div class="page-title">
+            <h2>📇 Directorio y Perfiles — Cartech Automóviles</h2>
+            <p>Gestiona tus contactos diferenciados en Cliente Final, Cliente Comerciante y Proveedores (talleres, latonería, repuestos y trámites).</p>
+          </div>
+          <div class="top-actions">
+            <button class="btn btn-outline" onclick="exportToExcel()">📊 Exportar Directorio</button>
+            <button class="btn btn-primary" onclick="openDirectoryModal()">➕ Nuevo Contacto / Perfil</button>
+          </div>
+        </div>
+
+        <!-- KPIs del Directorio -->
+        <div class="kpi-grid" id="directorio-kpis"></div>
+
+        <!-- Filtros rápidos por Tipo de Perfil -->
+        <div class="status-tabs-bar" id="directorio-profile-tabs"></div>
+
+        <!-- Buscador rápido por nombre, teléfono, ciudad o especialidad -->
+        <div class="filter-bar">
+          <div class="filter-group" style="flex: 2;">
+            <label>Buscador Rápido (Nombre, Teléfono, Ciudad o Especialidad)</label>
+            <input type="text" id="filter-dir-search" placeholder="Ej: Latonería, Bancolombia, 310..., Taller, Bogotá, Mazda..." oninput="renderDirectorySheet()" />
+          </div>
+          <div class="filter-group">
+            <label>Filtrar por Tipo de Perfil</label>
+            <select id="filter-dir-tipo" onchange="setDirectoryProfileTab(this.value)">
+              <option value="TODOS">📋 Todos los perfiles</option>
+              <option value="CLIENTE_FINAL">👤 Cliente Final</option>
+              <option value="COMERCIANTE">🏢 Cliente Comerciante</option>
+              <option value="PROVEEDOR">🔧 Proveedor (Talleres / Repuestos / Trámites)</option>
+            </select>
+          </div>
+        </div>
+
+        <!-- Tabla de Directorio y Perfiles -->
+        <div class="card-panel">
+          <div class="card-header">
+            <h3 id="directorio-table-title">📇 Contactos Registrados en el Directorio</h3>
+            <span id="directorio-count-label" style="font-size: 13px; color: var(--text-muted);"></span>
+          </div>
+          <div class="table-responsive">
+            <table>
+              <thead>
+                <tr>
+                  <th>Perfil / Nombre</th>
+                  <th>Teléfono / WhatsApp / Correo</th>
+                  <th>Ciudad / Sector</th>
+                  <th>Especialidad / Vehículo / Calificación</th>
+                  <th>Notas / Historial</th>
+                  <th>Acciones</th>
+                </tr>
+              </thead>
+              <tbody id="directorio-tbody"></tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <!-- ==========================================
+           MÓDULO 4: GESTIÓN DE SOCIOS, CAPITAL INVERTIDO Y GANANCIAS
            ========================================== -->
       <section class="sheet-view" id="sheet-socios">
+        <div class="module-back-bar">
+          <button class="btn btn-outline btn-sm" onclick="goHome()">⬅️ Volver al Inicio</button>
+        </div>
         <div class="top-bar">
           <div class="page-title">
             <h2>Socios, Capital Invertido Individualizado y División de Ganancias</h2>
@@ -368,9 +573,12 @@
       </section>
 
       <!-- ==========================================
-           HOJA 5: UBICACIONES DE DINERO LIBRE (LIQUIDEZ) Y GASTOS PROPIOS
+           MÓDULO 5: UBICACIONES DE DINERO LIBRE (LIQUIDEZ) Y GASTOS PROPIOS
            ========================================== -->
       <section class="sheet-view" id="sheet-gastos-propios">
+        <div class="module-back-bar">
+          <button class="btn btn-outline btn-sm" onclick="goHome()">⬅️ Volver al Inicio</button>
+        </div>
         <div class="top-bar">
           <div class="page-title">
             <h2>Ubicaciones de Dinero Libre (Liquidez Disponible) y Gastos</h2>
@@ -471,40 +679,50 @@
       </section>
 
       <!-- ==========================================
-           HOJA 6: NUBE 100% (CERO LOCALHOST) & RESPALDO EXCEL
+           MÓDULO 6: NUBE, SEGURIDAD DE ACCESO Y EXCEL
            ========================================== -->
       <section class="sheet-view" id="sheet-dispositivos">
+        <div class="module-back-bar">
+          <button class="btn btn-outline btn-sm" onclick="goHome()">⬅️ Volver al Inicio</button>
+        </div>
         <div class="top-bar">
           <div class="page-title">
-            <h2>Sincronización 100% Cloud (PC & POCO F8 Ultra) y Exportación Excel</h2>
-            <p>Persistencia activa en la nube en tiempo real sin depender de localhost.</p>
+            <h2>Nube, Seguridad de Acceso y Exportación Excel</h2>
+            <p>Administra tu contraseña de inicio de sesión, sincronización en la nube y copias de seguridad.</p>
           </div>
         </div>
 
         <div class="kpi-grid">
           <div class="card-panel" style="padding: 20px; margin-bottom: 0;">
-            <h3 style="margin-bottom: 10px; color: #34d399;">☁️ 1. Persistencia 100% en la Nube Activa</h3>
-            <p style="font-size: 13.5px; color: var(--text-muted); line-height: 1.6; margin-bottom: 12px;">
-              • Enlace oficial Cloud de <strong>Cartech Automóviles</strong>:<br/>
-              <a href="https://ornate-vacherin-b1aa01.netlify.app" target="_blank" style="color: #38bdf8; font-weight: 700; word-break: break-all;">https://ornate-vacherin-b1aa01.netlify.app</a><br/>
-              • Todo cambio que guardes desde tu <strong>POCO F8 Ultra</strong> o desde tu <strong>PC Windows</strong> se sincroniza en tiempo real en la nube.
+            <h3 style="margin-bottom: 10px; color: #60a5fa;">🔐 1. Seguridad y Cambio de Contraseña Cloud</h3>
+            <p style="font-size: 13px; color: var(--text-muted); line-height: 1.5; margin-bottom: 12px;">
+              Usuario actual: <strong id="sec-current-email" style="color: #f8fafc;">carlos@cartech.co</strong><br/>
+              Tu contraseña se guarda cifrada (SHA-256) y sincronizada en la nube para tu PC y tu POCO F8 Ultra.
             </p>
-            <button class="btn btn-primary btn-sm" onclick="forceCloudSyncNow()">🔄 Sincronizar con la Nube Ahora</button>
+            <form onsubmit="handleChangePassword(event)" style="display: flex; flex-direction: column; gap: 8px;">
+              <input type="email" id="sec-new-email" placeholder="Correo autorizado (ej: carlos@cartech.co)" required />
+              <input type="password" id="sec-new-pass" placeholder="Nueva contraseña (mín. 6 caracteres)" minlength="6" required />
+              <button type="submit" class="btn btn-primary btn-sm">💾 Actualizar Correo / Contraseña en la Nube</button>
+            </form>
           </div>
 
           <div class="card-panel" style="padding: 20px; margin-bottom: 0;">
-            <h3 style="margin-bottom: 10px; color: #60a5fa;">📱 2. Instalación en POCO F8 Ultra, iOS y Windows</h3>
-            <p style="font-size: 13.5px; color: var(--text-muted); line-height: 1.6; margin-bottom: 12px;">
-              • <strong>En tu POCO F8 Ultra (Chrome):</strong> Entra al enlace de arriba, toca el menú <strong>⋮</strong> y elige <em>"Instalar aplicación"</em>.<br/>
-              • <strong>En Windows:</strong> Usa <code>Iniciar_App_Escritorio.bat</code> o instala desde el navegador con el botón de abajo.
+            <h3 style="margin-bottom: 10px; color: #34d399;">☁️ 2. Persistencia 100% en la Nube</h3>
+            <p style="font-size: 13px; color: var(--text-muted); line-height: 1.6; margin-bottom: 12px;">
+              • Pruebas (Gratis): <a href="https://carlosteoro234.github.io/cartech-automoviles-web/" target="_blank" style="color: #fbbf24; font-weight: 700;">github.io/cartech-automoviles-web</a><br/>
+              • Producción: <a href="https://ornate-vacherin-b1aa01.netlify.app" target="_blank" style="color: #38bdf8; font-weight: 700;">ornate-vacherin-b1aa01.netlify.app</a>
             </p>
-            <button class="btn btn-outline btn-sm" onclick="triggerInstallPWA()">📲 Instalar App en este Dispositivo</button>
+            <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+              <button class="btn btn-primary btn-sm" onclick="forceCloudSyncNow()">🔄 Sincronizar Ahora</button>
+              <button class="btn btn-outline btn-sm" onclick="triggerInstallPWA()">📲 Instalar App</button>
+              <button class="btn btn-danger-ghost btn-sm" onclick="clearDemoData()">🧹 Limpiar Base</button>
+            </div>
           </div>
 
           <div class="card-panel" style="padding: 20px; margin-bottom: 0;">
             <h3 style="margin-bottom: 10px; color: #fbbf24;">📊 3. Descargar Libro de Excel (.xlsx) Completo</h3>
-            <p style="font-size: 13.5px; color: var(--text-muted); line-height: 1.6; margin-bottom: 14px;">
-              Genera un archivo Excel con 7 hojas: <em>Inventario, Peritajes, Prospectos CRM, Gastos Carros, Socios y Capital, Ubicaciones de Dinero Libre y Gastos Propios</em>.
+            <p style="font-size: 13px; color: var(--text-muted); line-height: 1.6; margin-bottom: 14px;">
+              Genera un archivo Excel con 8 hojas: <em>Inventario, Peritajes, Prospectos, Directorio y Perfiles, Capital y Socios, Liquidez, Gastos Carros y Gastos Propios</em>.
             </p>
             <div style="display: flex; gap: 8px; flex-wrap: wrap;">
               <button class="btn btn-success btn-sm" onclick="exportToExcel()">📊 Exportar Excel (.xlsx)</button>
@@ -519,52 +737,6 @@
       </section>
 
     </main>
-
-    <!-- Barra Inferior Estilo Hojas de Excel (Escritorio) -->
-    <div class="excel-sheet-bar">
-      <div class="excel-tab active" id="excel-tab-inventario" onclick="switchSheet('inventario')">
-        📗 1_Inventario_y_Capital
-      </div>
-      <div class="excel-tab" id="excel-tab-peritaje" onclick="switchSheet('peritaje')">
-        📋 2_Hoja_de_Peritaje
-      </div>
-      <div class="excel-tab" id="excel-tab-prospectos" onclick="switchSheet('prospectos')">
-        👥 3_Prospectos_Venta_Compra
-      </div>
-      <div class="excel-tab" id="excel-tab-socios" onclick="switchSheet('socios')">
-        📘 4_Socios_y_Capital
-      </div>
-      <div class="excel-tab" id="excel-tab-gastos-propios" onclick="switchSheet('gastos-propios')">
-        🏦 5_Liquidez_y_Gastos
-      </div>
-      <div class="excel-tab" id="excel-tab-dispositivos" onclick="switchSheet('dispositivos')">
-        ☁️ 6_Nube_y_Excel
-      </div>
-    </div>
-
-    <!-- Barra de Navegación Inferior (Android / POCO F8 Ultra / iOS) -->
-    <nav class="mobile-bottom-nav">
-      <button class="mobile-nav-btn active" id="mob-inventario" onclick="switchSheet('inventario')">
-        <span class="icon">🚙</span>
-        <span>Inventario</span>
-      </button>
-      <button class="mobile-nav-btn" id="mob-peritaje" onclick="switchSheet('peritaje')">
-        <span class="icon">📋</span>
-        <span>Peritaje</span>
-      </button>
-      <button class="mobile-nav-btn" id="mob-prospectos" onclick="switchSheet('prospectos')">
-        <span class="icon">👥</span>
-        <span>Prospectos</span>
-      </button>
-      <button class="mobile-nav-btn" id="mob-socios" onclick="switchSheet('socios')">
-        <span class="icon">🤝</span>
-        <span>Socios</span>
-      </button>
-      <button class="mobile-nav-btn" id="mob-gastos-propios" onclick="switchSheet('gastos-propios')">
-        <span class="icon">🏦</span>
-        <span>Liquidez</span>
-      </button>
-    </nav>
   </div>
 
   <!-- =========================================================
@@ -1233,6 +1405,132 @@
         <button type="button" class="btn btn-outline" onclick="closeModal('modal-whatsapp-templates')">Cerrar</button>
         <button type="button" class="btn btn-success" onclick="sendSelectedWhatsAppMessage()">💬 Enviar por WhatsApp Ahora</button>
       </div>
+    </div>
+  </div>
+
+  <!-- =========================================================
+       MODAL 9: CREAR / EDITAR PERFIL EN DIRECTORIO Y PERFILES
+       ========================================================= -->
+  <div class="modal-backdrop" id="modal-directory-profile">
+    <div class="modal-content" style="max-width: 680px;">
+      <div class="modal-header">
+        <h3 id="modal-dir-title">📇 Nuevo Contacto en Directorio y Perfiles</h3>
+        <button class="btn btn-outline btn-sm" onclick="closeModal('modal-directory-profile')">✕</button>
+      </div>
+      <form id="form-directory-profile" onsubmit="saveDirectoryProfile(event)" class="modal-body">
+        <input type="hidden" id="dir-id" />
+
+        <div class="form-group">
+          <label>Tipo de Perfil *</label>
+          <select id="dir-tipo" required onchange="onDirectoryProfileTypeChange()">
+            <option value="CLIENTE_FINAL">👤 Cliente Final (Comprador / Interesado)</option>
+            <option value="COMERCIANTE">🏢 Cliente Comerciante (Compra/Venta o Intermediario)</option>
+            <option value="PROVEEDOR">🔧 Proveedor (Talleres, Latonería, Repuestos, Tramitadores)</option>
+          </select>
+        </div>
+
+        <div class="form-grid">
+          <div class="form-group">
+            <label id="label-dir-nombre">Nombre Completo *</label>
+            <input type="text" id="dir-nombre" placeholder="Ej: Juan Pablo Rojas" required />
+          </div>
+          <div class="form-group">
+            <label>Teléfono / WhatsApp (Solo Números) *</label>
+            <input type="text" inputmode="numeric" id="dir-telefono" placeholder="Ej: 3104567890" maxlength="15" required oninput="enforcePhoneDigits(this)" />
+          </div>
+        </div>
+
+        <!-- Campos específicos: CLIENTE FINAL -->
+        <div id="dir-fields-cliente-final" style="display: flex; flex-direction: column; gap: 12px; border-top: 1px solid var(--border-color); padding-top: 12px;">
+          <h4 style="font-size: 13.5px; color: #60a5fa;">👤 Datos de Cliente Final</h4>
+          <div class="form-grid">
+            <div class="form-group">
+              <label>Cédula / Documento</label>
+              <input type="text" inputmode="numeric" id="dir-cf-documento" placeholder="Ej: 1.020.456.789" oninput="formatCurrencyInput(this)" />
+            </div>
+            <div class="form-group">
+              <label>Correo Electrónico</label>
+              <input type="email" id="dir-cf-correo" placeholder="Ej: cliente@correo.com" />
+            </div>
+            <div class="form-group">
+              <label>Ciudad</label>
+              <input type="text" id="dir-cf-ciudad" placeholder="Ej: Bogotá" />
+            </div>
+          </div>
+          <div class="form-group">
+            <label>Vehículo de Interés o Adquirido</label>
+            <input type="text" id="dir-cf-vehiculo" list="colombia-vehicles-datalist" placeholder="Ej: Mazda CX-30 Grand Touring 2023" />
+          </div>
+        </div>
+
+        <!-- Campos específicos: CLIENTE COMERCIANTE -->
+        <div id="dir-fields-comerciante" style="display: none; flex-direction: column; gap: 12px; border-top: 1px solid var(--border-color); padding-top: 12px;">
+          <h4 style="font-size: 13.5px; color: #c4b5fd;">🏢 Datos de Cliente Comerciante / Vitrina</h4>
+          <div class="form-grid">
+            <div class="form-group">
+              <label>Contacto Principal</label>
+              <input type="text" id="dir-com-contacto" placeholder="Ej: Felipe Morales" oninput="enforceLettersAndSpaces(this)" />
+            </div>
+            <div class="form-group">
+              <label>Ciudad</label>
+              <input type="text" id="dir-com-ciudad" placeholder="Ej: Bogotá / Medellín / Bucaramanga" />
+            </div>
+            <div class="form-group">
+              <label>Especialidad / Gama que Maneja</label>
+              <input type="text" id="dir-com-especialidad" placeholder="Ej: Camionetas 4x4, Gama media, Comerciales" />
+            </div>
+          </div>
+          <div class="form-group">
+            <label>Historial de Negocios</label>
+            <input type="text" id="dir-com-historial" placeholder="Ej: Nos compró 2 Mazda 3 y nos refiere camionetas Toyota" />
+          </div>
+        </div>
+
+        <!-- Campos específicos: PROVEEDOR -->
+        <div id="dir-fields-proveedor" style="display: none; flex-direction: column; gap: 12px; border-top: 1px solid var(--border-color); padding-top: 12px;">
+          <h4 style="font-size: 13.5px; color: #fcd34d;">🔧 Datos de Proveedor / Taller / Servicio</h4>
+          <div class="form-grid">
+            <div class="form-group">
+              <label>Especialidad / Servicio *</label>
+              <select id="dir-prov-especialidad">
+                <option value="Mecánica General">⚙️ Mecánica General</option>
+                <option value="Latonería y Pintura">🎨 Latonería y Pintura</option>
+                <option value="Tapicería y Detailing">💺 Tapicería y Polichado/Detailing</option>
+                <option value="Trámites y Traspasos">📄 Trámites y Traspasos</option>
+                <option value="Repuestos y Accesorios">🔩 Repuestos y Accesorios</option>
+                <option value="Llantas y Alineación">🛞 Llantas y Alineación</option>
+                <option value="Grúa / Transporte">🚛 Grúa / Transporte</option>
+                <option value="Peritaje / Escáner">📋 Peritaje / Escáner</option>
+                <option value="Otro Servicio">🔧 Otro Servicio</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label>Dirección / Sector</label>
+              <input type="text" id="dir-prov-direccion" placeholder="Ej: 7 de Agosto / Calle 127 / Morato" />
+            </div>
+            <div class="form-group">
+              <label>Calificación Interna (1 a 5 Estrellas)</label>
+              <select id="dir-prov-calificacion">
+                <option value="5">⭐⭐⭐⭐⭐ (5 - Excelente)</option>
+                <option value="4">⭐⭐⭐⭐ (4 - Muy bueno)</option>
+                <option value="3">⭐⭐⭐ (3 - Bueno / Regular)</option>
+                <option value="2">⭐⭐ (2 - Aceptable con reservas)</option>
+                <option value="1">⭐ (1 - No recomendado)</option>
+              </select>
+            </div>
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label id="label-dir-notas">Notas de Seguimiento / Observaciones / Precios</label>
+          <textarea id="dir-notas" rows="3" placeholder="Escribe notas de seguimiento, cumplimiento, precios o referencias..."></textarea>
+        </div>
+
+        <div class="modal-footer" style="padding: 12px 0 0;">
+          <button type="button" class="btn btn-outline" onclick="closeModal('modal-directory-profile')">Cancelar</button>
+          <button type="submit" class="btn btn-primary">💾 Guardar Perfil en la Nube</button>
+        </div>
+      </form>
     </div>
   </div>
 

@@ -2,13 +2,13 @@
   --cartech-blue: #003893;
   --cartech-blue-bright: #0052cc;
   --cartech-blue-light: #3b82f6;
-  --bg-main: #0a1122;
-  --bg-card: #131f38;
-  --bg-elevated: #1e2f52;
-  --bg-input: #091020;
+  --bg-main: #090d16;
+  --bg-card: #111827;
+  --bg-elevated: #1b2538;
+  --bg-input: #0b101b;
   --text-main: #f8fafc;
   --text-muted: #94a3b8;
-  --border-color: #233863;
+  --border-color: #25334d;
   --primary: #0046b8;
   --primary-hover: #003893;
   --success: #10b981;
@@ -23,7 +23,7 @@
   --cyan-bg: rgba(6, 182, 212, 0.15);
   --radius: 12px;
   --radius-sm: 8px;
-  --shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.45);
+  --shadow: 0 12px 30px -8px rgba(0, 0, 0, 0.55);
 }
 
 * {
@@ -300,15 +300,252 @@ body {
   gap: 8px;
 }
 
-/* Main Content - Sin desborde horizontal en PC */
+/* Main Content - Layout sin barra lateral fija (Navegación por Módulos) */
 .main-content {
   flex: 1;
-  margin-left: 270px;
-  padding: 20px 22px 90px;
-  max-width: calc(100vw - 270px);
-  width: calc(100% - 270px);
+  margin-left: 0;
+  padding: 20px 24px 48px;
+  max-width: 1480px;
+  width: 100%;
+  margin-right: auto;
+  margin-left: auto;
   min-width: 0;
   overflow-x: hidden;
+}
+
+/* =========================================================================
+   PANTALLA DE LOGIN INDEPENDIENTE (PUERTA DE ENTRADA OBLIGATORIA)
+   ========================================================================= */
+.auth-screen {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  background: radial-gradient(circle at top center, rgba(0, 56, 147, 0.32), #090d16 65%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  overflow-y: auto;
+}
+
+.auth-card {
+  width: 100%;
+  max-width: 430px;
+  background: rgba(17, 24, 39, 0.96);
+  border: 1px solid var(--border-color);
+  border-top: 4px solid var(--cartech-blue);
+  border-radius: 16px;
+  padding: 30px 26px;
+  box-shadow: 0 24px 55px rgba(0, 0, 0, 0.65);
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.auth-logo-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.auth-error-msg {
+  display: none;
+  background: var(--danger-bg);
+  color: #fca5a5;
+  border: 1px solid rgba(239, 68, 68, 0.4);
+  border-radius: var(--radius-sm);
+  padding: 10px 12px;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+/* =========================================================================
+   BARRA SUPERIOR CORPORATIVA FIJA (CON LOGOTIPO, VOLVER Y CERRAR SESIÓN)
+   ========================================================================= */
+.app-topbar {
+  position: sticky;
+  top: 0;
+  z-index: 60;
+  background: rgba(11, 16, 27, 0.94);
+  backdrop-filter: blur(12px);
+  border-bottom: 1px solid var(--border-color);
+  padding: 10px 22px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.topbar-left {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+
+.topbar-brand-click {
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.topbar-right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.topbar-user-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  padding: 6px 12px;
+  border-radius: 999px;
+  font-size: 12.5px;
+  color: #cbd5e1;
+  font-weight: 600;
+}
+
+/* =========================================================================
+   PÁGINA PRINCIPAL (DASHBOARD DE MÓDULOS CON TARJETAS)
+   ========================================================================= */
+.home-hero {
+  background: linear-gradient(135deg, rgba(0, 56, 147, 0.28), rgba(17, 24, 39, 0.96));
+  border: 1px solid var(--border-color);
+  border-left: 5px solid var(--cartech-blue-bright);
+  border-radius: 14px;
+  padding: 22px 24px;
+  margin-bottom: 22px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.modules-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(290px, 1fr));
+  gap: 16px;
+  margin-bottom: 24px;
+}
+
+.module-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: 14px;
+  padding: 20px;
+  cursor: pointer;
+  transition: transform 0.16s ease, border-color 0.16s ease, box-shadow 0.16s ease;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  position: relative;
+  overflow: hidden;
+  text-align: left;
+}
+
+.module-card::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 3px;
+  background: var(--cartech-blue-bright);
+}
+
+.module-card.mod-green::before { background: var(--success); }
+.module-card.mod-amber::before { background: var(--warning); }
+.module-card.mod-purple::before { background: var(--info); }
+.module-card.mod-cyan::before { background: var(--cyan); }
+
+.module-card:hover {
+  transform: translateY(-3px);
+  border-color: #3b82f6;
+  box-shadow: 0 12px 28px rgba(0, 56, 147, 0.28);
+}
+
+.module-card-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.module-card-icon {
+  width: 46px;
+  height: 46px;
+  border-radius: 12px;
+  background: rgba(0, 70, 184, 0.2);
+  border: 1px solid rgba(59, 130, 246, 0.35);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 22px;
+}
+
+.module-card h3 {
+  font-size: 16.5px;
+  font-weight: 700;
+  color: #f8fafc;
+}
+
+.module-card p {
+  font-size: 13px;
+  color: var(--text-muted);
+  line-height: 1.45;
+  flex: 1;
+}
+
+.module-card-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding-top: 10px;
+  border-top: 1px solid rgba(37, 51, 77, 0.7);
+  font-size: 12.5px;
+  font-weight: 700;
+  color: #60a5fa;
+}
+
+/* Botón Volver al Inicio dentro de cada módulo */
+.module-back-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+/* Estrellas de calificación para Proveedores */
+.star-rating-display {
+  color: #fbbf24;
+  font-size: 14px;
+  letter-spacing: 1px;
+}
+
+.profile-badge-cliente {
+  background: rgba(59, 130, 246, 0.18);
+  color: #93c5fd;
+  border: 1px solid rgba(59, 130, 246, 0.4);
+}
+.profile-badge-comerciante {
+  background: rgba(139, 92, 246, 0.18);
+  color: #c4b5fd;
+  border: 1px solid rgba(139, 92, 246, 0.4);
+}
+.profile-badge-proveedor {
+  background: rgba(245, 158, 11, 0.18);
+  color: #fcd34d;
+  border: 1px solid rgba(245, 158, 11, 0.4);
 }
 
 /* Top Header */
@@ -1146,20 +1383,14 @@ tr:hover td {
 
 /* Responsive Breakpoints for Android / iOS / Tablets */
 @media (max-width: 960px) {
-  .sidebar {
-    display: none;
-  }
   .main-content {
     margin-left: 0 !important;
     width: 100% !important;
     max-width: 100% !important;
-    padding: 14px 12px 95px;
+    padding: 14px 12px 40px;
   }
-  .excel-sheet-bar {
-    display: none;
-  }
-  .mobile-bottom-nav {
-    display: flex;
+  .app-topbar {
+    padding: 10px 12px;
   }
   .kpi-grid {
     grid-template-columns: repeat(2, 1fr);
@@ -1184,12 +1415,24 @@ tr:hover td {
 }
 
 @media (max-width: 600px) {
+  .modules-grid,
   .kpi-grid,
   .capital-breakdown-grid,
   .money-locations-grid,
   .peritaje-cat-bars,
   .form-grid {
     grid-template-columns: 1fr !important;
+  }
+  .topbar-user-pill {
+    display: none;
+  }
+  .cartech-logo-car,
+  .cartech-logo-tech {
+    font-size: 16px;
+    padding: 2px 7px;
+  }
+  .cartech-logo-sub {
+    font-size: 8px;
   }
   .filter-bar {
     padding: 12px;
