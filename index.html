@@ -22,38 +22,38 @@
       <div class="auth-logo-wrap">
         <div class="cartech-logo-box">
           <div class="cartech-logo-split">
-            <span class="cartech-logo-car" style="font-size: 26px; padding: 5px 14px;">CAR</span>
-            <span class="cartech-logo-tech" style="font-size: 26px; padding: 5px 14px;">TECH</span>
+            <span class="cartech-logo-car" style="font-size: 20px; padding: 3px 10px;">CAR</span>
+            <span class="cartech-logo-tech" style="font-size: 20px; padding: 3px 10px;">TECH</span>
           </div>
-          <span class="cartech-logo-sub" style="font-size: 10.5px; margin-top: 6px;">COMERCIALIZADORA DE VEHÍCULOS</span>
+          <span class="cartech-logo-sub" style="font-size: 8.5px; margin-top: 4px;">COMERCIALIZADORA DE VEHÍCULOS</span>
         </div>
-        <div style="text-align: center; margin-top: 4px;">
-          <h2 style="font-size: 18px; color: #f8fafc;">Acceso Seguro a la Plataforma</h2>
-          <p style="font-size: 12.5px; color: var(--text-muted); margin-top: 2px;">Inicia sesión con tu correo y contraseña autorizados</p>
+        <div style="text-align: center; margin-top: 2px;">
+          <h2 style="font-size: 15px; color: #f8fafc;">Acceso Seguro</h2>
+          <p style="font-size: 11px; color: var(--text-muted); margin-top: 2px;">Ingresa tu correo y contraseña autorizados</p>
         </div>
       </div>
 
       <div class="auth-error-msg" id="auth-error-msg"></div>
 
-      <form id="form-login" onsubmit="handleLoginSubmit(event)" style="display: flex; flex-direction: column; gap: 14px;">
+      <form id="form-login" onsubmit="handleLoginSubmit(event)" style="display: flex; flex-direction: column; gap: 10px;">
         <div class="form-group">
-          <label>Correo Electrónico *</label>
-          <input type="email" id="login-email" placeholder="Ej: carlos@cartech.co" required autocomplete="username" />
+          <label>Correo Electrónico</label>
+          <input type="email" id="login-email" placeholder="carlos@cartech.co" required autocomplete="username" />
         </div>
         <div class="form-group">
-          <label>Contraseña *</label>
-          <input type="password" id="login-password" placeholder="Ingresa tu contraseña" required autocomplete="current-password" />
+          <label>Contraseña</label>
+          <input type="password" id="login-password" placeholder="••••••••" required autocomplete="current-password" />
         </div>
-        <label style="display: flex; align-items: center; gap: 8px; font-size: 12.5px; color: #cbd5e1; cursor: pointer;">
+        <label style="display: flex; align-items: center; justify-content: center; gap: 6px; font-size: 11px; color: #cbd5e1; cursor: pointer; margin-top: 2px;">
           <input type="checkbox" id="login-remember" checked style="width: auto;" />
-          <span>Mantener sesión iniciada en este dispositivo</span>
+          <span>Mantener sesión iniciada</span>
         </label>
-        <button type="submit" class="btn btn-primary" style="width: 100%; padding: 12px; font-size: 14.5px;">
-          🔐 Ingresar a Cartech Automóviles
+        <button type="submit" class="btn btn-primary" style="width: 100%; padding: 9px 12px; font-size: 13px; margin-top: 2px;">
+          🔐 Ingresar
         </button>
       </form>
 
-      <div style="text-align: center; font-size: 11.5px; color: var(--text-muted); border-top: 1px solid var(--border-color); padding-top: 12px;">
+      <div style="text-align: center; font-size: 10.5px; color: var(--text-muted); border-top: 1px solid var(--border-color); padding-top: 9px;">
         <span id="auth-env-badge">☁️ Conexión Cloud Segura</span>
       </div>
     </div>
@@ -198,11 +198,11 @@
 
           <button class="module-card" onclick="openModule('dispositivos')">
             <div class="module-card-top">
-              <div class="module-card-icon">☁️</div>
-              <span class="badge condicion-usado">Seguridad • Excel</span>
+              <div class="module-card-icon">⚙️</div>
+              <span class="badge condicion-usado" id="home-badge-usuarios">Usuarios • Nube</span>
             </div>
-            <h3>Nube, Seguridad y Excel</h3>
-            <p>Gestión de contraseña y usuarios de acceso, sincronización en la nube, copias de seguridad JSON y exportación completa a Excel.</p>
+            <h3>Configuración y Usuarios</h3>
+            <p>Agregar usuarios autorizados, cambiar contraseñas, datos de la empresa para PDFs, sincronización en la nube y exportación a Excel.</p>
             <div class="module-card-footer">
               <span>Abrir módulo</span>
               <span>→</span>
@@ -679,7 +679,7 @@
       </section>
 
       <!-- ==========================================
-           MÓDULO 6: NUBE, SEGURIDAD DE ACCESO Y EXCEL
+           MÓDULO 6: CONFIGURACIÓN, USUARIOS, CONTRASEÑAS, NUBE Y EXCEL
            ========================================== -->
       <section class="sheet-view" id="sheet-dispositivos">
         <div class="module-back-bar">
@@ -687,30 +687,100 @@
         </div>
         <div class="top-bar">
           <div class="page-title">
-            <h2>Nube, Seguridad de Acceso y Exportación Excel</h2>
-            <p>Administra tu contraseña de inicio de sesión, sincronización en la nube y copias de seguridad.</p>
+            <h2>⚙️ Configuración — Cartech Automóviles</h2>
+            <p>Gestiona usuarios autorizados, contraseñas de acceso, datos de empresa para PDFs, nube y copias de seguridad.</p>
+          </div>
+          <div class="top-actions">
+            <button class="btn btn-success" onclick="exportToExcel()">📊 Exportar Excel (.xlsx)</button>
           </div>
         </div>
 
+        <!-- 1. GESTIÓN DE USUARIOS Y CONTRASEÑAS -->
+        <div class="card-panel">
+          <div class="card-header">
+            <div>
+              <h3>👥 Usuarios Autorizados y Contraseñas (Sincronizado en la Nube)</h3>
+              <span style="font-size: 12px; color: var(--text-muted);">Sesión activa: <strong id="sec-current-email" style="color: #60a5fa;">carlos@cartech.co</strong></span>
+            </div>
+          </div>
+
+          <div style="padding: 16px 20px; border-bottom: 1px solid var(--border-color); background: rgba(15, 23, 42, 0.5);">
+            <h4 style="font-size: 13.5px; color: #60a5fa; margin-bottom: 10px;">➕ Agregar Nuevo Usuario Autorizado</h4>
+            <form id="form-add-user" onsubmit="handleAddUser(event)" class="form-grid" style="align-items: end;">
+              <div class="form-group">
+                <label>Nombre Completo *</label>
+                <input type="text" id="new-user-name" placeholder="Ej: Tatiana / Asesor" required oninput="enforceLettersAndSpaces(this)" />
+              </div>
+              <div class="form-group">
+                <label>Correo Electrónico *</label>
+                <input type="email" id="new-user-email" placeholder="Ej: tatiana@cartech.co" required />
+              </div>
+              <div class="form-group">
+                <label>Rol</label>
+                <select id="new-user-role">
+                  <option value="Administrador">👑 Administrador</option>
+                  <option value="Socio">🤝 Socio</option>
+                  <option value="Asesor Comercial">💼 Asesor Comercial</option>
+                </select>
+              </div>
+              <div class="form-group">
+                <label>Contraseña (mín. 6 caracteres) *</label>
+                <input type="password" id="new-user-pass" placeholder="••••••••" minlength="6" required />
+              </div>
+              <div class="form-group">
+                <button type="submit" class="btn btn-primary" style="width: 100%;">➕ Crear Usuario</button>
+              </div>
+            </form>
+          </div>
+
+          <div class="table-responsive">
+            <table>
+              <thead>
+                <tr>
+                  <th>Nombre</th>
+                  <th>Correo de Acceso</th>
+                  <th>Rol</th>
+                  <th>Cambiar Contraseña / Acciones</th>
+                </tr>
+              </thead>
+              <tbody id="config-users-tbody"></tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- 2. DATOS DE LA EMPRESA + NUBE Y RESPALDO -->
         <div class="kpi-grid">
           <div class="card-panel" style="padding: 20px; margin-bottom: 0;">
-            <h3 style="margin-bottom: 10px; color: #60a5fa;">🔐 1. Seguridad y Cambio de Contraseña Cloud</h3>
-            <p style="font-size: 13px; color: var(--text-muted); line-height: 1.5; margin-bottom: 12px;">
-              Usuario actual: <strong id="sec-current-email" style="color: #f8fafc;">carlos@cartech.co</strong><br/>
-              Tu contraseña se guarda cifrada (SHA-256) y sincronizada en la nube para tu PC y tu POCO F8 Ultra.
-            </p>
-            <form onsubmit="handleChangePassword(event)" style="display: flex; flex-direction: column; gap: 8px;">
-              <input type="email" id="sec-new-email" placeholder="Correo autorizado (ej: carlos@cartech.co)" required />
-              <input type="password" id="sec-new-pass" placeholder="Nueva contraseña (mín. 6 caracteres)" minlength="6" required />
-              <button type="submit" class="btn btn-primary btn-sm">💾 Actualizar Correo / Contraseña en la Nube</button>
+            <h3 style="margin-bottom: 10px; color: #60a5fa;">🚘 Datos Corporativos (Para PDFs y WhatsApp)</h3>
+            <form onsubmit="saveCompanySettings(event)" style="display: flex; flex-direction: column; gap: 10px;">
+              <div class="form-group">
+                <label>Nombre Comercial</label>
+                <input type="text" id="cfg-company-name" placeholder="Cartech Automóviles" required />
+              </div>
+              <div class="form-group">
+                <label>Responsable / Administrador (Firma en PDFs)</label>
+                <input type="text" id="cfg-company-owner" placeholder="Carlos Téllez" required />
+              </div>
+              <div class="form-grid">
+                <div class="form-group">
+                  <label>Ciudad</label>
+                  <input type="text" id="cfg-company-city" placeholder="Bogotá D.C." />
+                </div>
+                <div class="form-group">
+                  <label>Teléfono Corporativo</label>
+                  <input type="text" inputmode="numeric" id="cfg-company-phone" placeholder="3001234567" oninput="enforcePhoneDigits(this)" />
+                </div>
+              </div>
+              <button type="submit" class="btn btn-primary btn-sm">💾 Guardar Datos de Empresa</button>
             </form>
           </div>
 
           <div class="card-panel" style="padding: 20px; margin-bottom: 0;">
-            <h3 style="margin-bottom: 10px; color: #34d399;">☁️ 2. Persistencia 100% en la Nube</h3>
+            <h3 style="margin-bottom: 10px; color: #34d399;">☁️ Nube, Entornos e Instalación App</h3>
             <p style="font-size: 13px; color: var(--text-muted); line-height: 1.6; margin-bottom: 12px;">
-              • Pruebas (Gratis): <a href="https://carlosteoro234.github.io/cartech-automoviles-web/" target="_blank" style="color: #fbbf24; font-weight: 700;">github.io/cartech-automoviles-web</a><br/>
-              • Producción: <a href="https://ornate-vacherin-b1aa01.netlify.app" target="_blank" style="color: #38bdf8; font-weight: 700;">ornate-vacherin-b1aa01.netlify.app</a>
+              • <strong>Pruebas (Gratis):</strong> <a href="https://carlosteoro234.github.io/cartech-automoviles-web/" target="_blank" style="color: #fbbf24; font-weight: 700;">github.io/cartech-automoviles-web</a><br/>
+              • <strong>Producción:</strong> <a href="https://ornate-vacherin-b1aa01.netlify.app" target="_blank" style="color: #38bdf8; font-weight: 700;">ornate-vacherin-b1aa01.netlify.app</a><br/>
+              • Sincronización automática en tiempo real entre PC y celular (**POCO F8 Ultra**).
             </p>
             <div style="display: flex; gap: 8px; flex-wrap: wrap;">
               <button class="btn btn-primary btn-sm" onclick="forceCloudSyncNow()">🔄 Sincronizar Ahora</button>
@@ -720,9 +790,9 @@
           </div>
 
           <div class="card-panel" style="padding: 20px; margin-bottom: 0;">
-            <h3 style="margin-bottom: 10px; color: #fbbf24;">📊 3. Descargar Libro de Excel (.xlsx) Completo</h3>
+            <h3 style="margin-bottom: 10px; color: #fbbf24;">📊 Copias de Seguridad y Excel (.xlsx)</h3>
             <p style="font-size: 13px; color: var(--text-muted); line-height: 1.6; margin-bottom: 14px;">
-              Genera un archivo Excel con 8 hojas: <em>Inventario, Peritajes, Prospectos, Directorio y Perfiles, Capital y Socios, Liquidez, Gastos Carros y Gastos Propios</em>.
+              Descarga tu libro completo de Excel con 8 hojas (<em>Inventario, Peritajes, Prospectos, Directorio, Capital/Socios, Liquidez, Gastos Carros y Gastos Propios</em>) o guarda/restaura un respaldo JSON.
             </p>
             <div style="display: flex; gap: 8px; flex-wrap: wrap;">
               <button class="btn btn-success btn-sm" onclick="exportToExcel()">📊 Exportar Excel (.xlsx)</button>

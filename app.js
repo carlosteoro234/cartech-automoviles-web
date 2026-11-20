@@ -1120,15 +1120,27 @@ async function sha256Hex(text) {
   return 'fb-' + (h >>> 0).toString(16);
 }
 
-async function getEffectiveAuthConfig() {
-  if (db.authConfig && db.authConfig.email && db.authConfig.passwordHash) {
-    return db.authConfig;
+async function ensureAuthUsersList() {
+  if (!Array.isArray(db.authUsers) || db.authUsers.length === 0) {
+    const defaultHash = (db.authConfig && db.authConfig.passwordHash)
+      ? db.authConfig.passwordHash
+      : await sha256Hex(DEFAULT_ADMIN_PASS);
+    const defaultEmail = (db.authConfig && db.authConfig.email)
+      ? db.authConfig.email
+      : DEFAULT_ADMIN_EMAIL;
+
+    db.authUsers = [
+      {
+        id: 'usr-admin-1',
+        nombre: 'Carlos Téllez',
+        email: defaultEmail.toLowerCase(),
+        rol: 'Administrador',
+        passwordHash: defaultHash,
+        createdAt: Date.now()
+      }
+    ];
   }
-  const defaultHash = await sha256Hex(DEFAULT_ADMIN_PASS);
-  return {
-    email: DEFAULT_ADMIN_EMAIL,
-    passwordHash: defaultHash
-  };
+  return db.authUsers;
 }
 
 function getActiveSession() {
@@ -1151,8 +1163,8 @@ function applyAuthUIState() {
   const envBadge = document.getElementById('auth-env-badge');
   if (envBadge) {
     envBadge.textContent = IS_PROD_ENV
-      ? '☁️ Producción Cartech Automóviles — Conexión Cloud Segura'
-      : '🧪 Entorno PRUEBAS — Conexión Cloud Segura';
+      ? '☁️ Producción Cartech Automóviles'
+      : '🧪 Entorno PRUEBAS — Conexión Cloud';
   }
 
   const session = getActiveSession();
@@ -1161,12 +1173,10 @@ function applyAuthUIState() {
     if (appShell) appShell.style.display = 'flex';
 
     const userPill = document.getElementById('topbar-user-email');
-    if (userPill) userPill.textContent = `👤 ${session.email}`;
+    if (userPill) userPill.textContent = `👤 ${session.nombre || session.email}`;
 
     const secEmailEl = document.getElementById('sec-current-email');
-    const secInputEl = document.getElementById('sec-new-email');
-    if (secEmailEl) secEmailEl.textContent = session.email;
-    if (secInputEl && !secInputEl.value) secInputEl.value = session.email;
+    if (secEmailEl) secEmailEl.textContent = `${session.nombre || 'Usuario'} (${session.email})`;
 
     updateAllViews();
   } else {
@@ -1184,16 +1194,23 @@ async function handleLoginSubmit(event) {
 
   if (errBox) errBox.style.display = 'none';
 
-  // Sincronizar primero con la nube para validar contra la contraseña más reciente
+  // Sincronizar primero con la nube para validar contra la lista de usuarios más reciente
   await pullFromCloud(false);
 
-  const authCfg = await getEffectiveAuthConfig();
+  const users = await ensureAuthUsersList();
   const inputHash = await sha256Hex(passInput);
 
-  if (emailInput === authCfg.email.toLowerCase() && inputHash === authCfg.passwordHash) {
+  const matchedUser = users.find(
+    (u) => (u.email || '').toLowerCase() === emailInput && u.passwordHash === inputHash
+  );
+
+  if (matchedUser) {
     const sessionObj = {
       loggedIn: true,
-      email: authCfg.email,
+      id: matchedUser.id,
+      nombre: matchedUser.nombre,
+      email: matchedUser.email,
+      rol: matchedUser.rol,
       loginAt: Date.now()
     };
     if (remember) {
@@ -1206,7 +1223,7 @@ async function handleLoginSubmit(event) {
     goHome();
   } else {
     if (errBox) {
-      errBox.textContent = '⚠️ Correo o contraseña incorrectos. Verifica tus datos e intenta nuevamente.';
+      errBox.textContent = '⚠️ Correo o contraseña incorrectos.';
       errBox.style.display = 'block';
     }
   }
@@ -1219,37 +1236,132 @@ function handleLogout() {
   applyAuthUIState();
 }
 
-async function handleChangePassword(event) {
+// Gestión de Usuarios y Contraseñas en el Módulo de Configuración
+async function renderConfigUsersSection() {
+  const users = await ensureAuthUsersList();
+  const tbody = document.getElementById('config-users-tbody');
+  const homeBadge = document.getElementById('home-badge-usuarios');
+  if (homeBadge) homeBadge.textContent = `${users.length} usuario(s)`;
+
+  // Cargar datos corporativos de empresa en el formulario
+  const cfg = db.companySettings || {
+    nombre: 'Cartech Automóviles',
+    responsable: 'Carlos Téllez',
+    ciudad: 'Bogotá D.C.',
+    telefono: ''
+  };
+  const elName = document.getElementById('cfg-company-name');
+  const elOwner = document.getElementById('cfg-company-owner');
+  const elCity = document.getElementById('cfg-company-city');
+  const elPhone = document.getElementById('cfg-company-phone');
+  if (elName && !elName.matches(':focus')) elName.value = cfg.nombre || 'Cartech Automóviles';
+  if (elOwner && !elOwner.matches(':focus')) elOwner.value = cfg.responsable || 'Carlos Téllez';
+  if (elCity && !elCity.matches(':focus')) elCity.value = cfg.ciudad || 'Bogotá D.C.';
+  if (elPhone && !elPhone.matches(':focus')) elPhone.value = cfg.telefono || '';
+
+  if (!tbody) return;
+
+  tbody.innerHTML = users
+    .map((u) => {
+      const canDelete = users.length > 1;
+      return `
+        <tr>
+          <td style="font-weight: 700; color: #f8fafc;">${escapeHtml(u.nombre || 'Usuario')}</td>
+          <td style="font-family: monospace; color: #38bdf8;">${escapeHtml(u.email)}</td>
+          <td><span class="badge condicion-nuevo">${escapeHtml(u.rol || 'Administrador')}</span></td>
+          <td>
+            <div style="display: flex; gap: 6px; flex-wrap: wrap;">
+              <button class="btn btn-outline btn-sm" onclick="handlePromptChangeUserPassword('${u.id}')">🔑 Cambiar Contraseña</button>
+              ${canDelete ? `<button class="btn btn-danger-ghost btn-sm" onclick="handleDeleteUser('${u.id}')">🗑️ Eliminar</button>` : '<span style="font-size:11px; color:var(--text-muted); align-self:center;">Usuario principal</span>'}
+            </div>
+          </td>
+        </tr>
+      `;
+    })
+    .join('');
+}
+
+async function handleAddUser(event) {
   event.preventDefault();
   if (!isUserAuthenticated()) return;
 
-  const newEmail = (document.getElementById('sec-new-email')?.value || '').trim().toLowerCase();
-  const newPass = document.getElementById('sec-new-pass')?.value || '';
+  const nombre = (document.getElementById('new-user-name')?.value || '').trim();
+  const email = (document.getElementById('new-user-email')?.value || '').trim().toLowerCase();
+  const rol = document.getElementById('new-user-role')?.value || 'Asesor Comercial';
+  const pass = document.getElementById('new-user-pass')?.value || '';
 
-  if (!newEmail || newPass.length < 6) {
-    alert('Por favor ingresa un correo válido y una contraseña de al menos 6 caracteres.');
+  if (!nombre || !email || pass.length < 6) {
+    alert('Completa nombre, correo válido y contraseña de al menos 6 caracteres.');
     return;
   }
 
-  const newHash = await sha256Hex(newPass);
-  db.authConfig = {
-    email: newEmail,
-    passwordHash: newHash,
-    updatedAt: Date.now()
-  };
-
-  // Actualizar sesión activa con el nuevo correo
-  const sessionObj = { loggedIn: true, email: newEmail, loginAt: Date.now() };
-  if (localStorage.getItem(AUTH_SESSION_KEY)) {
-    localStorage.setItem(AUTH_SESSION_KEY, JSON.stringify(sessionObj));
-  } else {
-    sessionStorage.setItem(AUTH_SESSION_KEY, JSON.stringify(sessionObj));
+  const users = await ensureAuthUsersList();
+  if (users.some((u) => (u.email || '').toLowerCase() === email)) {
+    alert('Ya existe un usuario registrado con ese correo.');
+    return;
   }
 
-  document.getElementById('sec-new-pass').value = '';
+  const passwordHash = await sha256Hex(pass);
+  users.push({
+    id: 'usr-' + Date.now(),
+    nombre,
+    email,
+    rol,
+    passwordHash,
+    createdAt: Date.now()
+  });
+
+  db.authUsers = users;
+  document.getElementById('form-add-user')?.reset();
   saveDB();
-  applyAuthUIState();
-  alert('✅ Correo y contraseña actualizados y sincronizados en la nube correctamente.');
+  alert(`✅ Usuario "${nombre}" (${email}) creado y sincronizado en la nube.`);
+}
+
+async function handlePromptChangeUserPassword(userId) {
+  if (!isUserAuthenticated()) return;
+  const users = await ensureAuthUsersList();
+  const target = users.find((u) => u.id === userId);
+  if (!target) return;
+
+  const newPass = prompt(`Ingresa la NUEVA contraseña para ${target.nombre} (${target.email}) [mínimo 6 caracteres]:`);
+  if (newPass === null) return;
+  if (newPass.trim().length < 6) {
+    alert('La contraseña debe tener al menos 6 caracteres.');
+    return;
+  }
+
+  target.passwordHash = await sha256Hex(newPass.trim());
+  target.updatedAt = Date.now();
+  db.authUsers = users;
+  saveDB();
+  alert(`✅ Contraseña actualizada para ${target.email} y sincronizada en la nube.`);
+}
+
+async function handleDeleteUser(userId) {
+  if (!isUserAuthenticated()) return;
+  const users = await ensureAuthUsersList();
+  if (users.length <= 1) {
+    alert('No puedes eliminar el único usuario administrador del sistema.');
+    return;
+  }
+  const target = users.find((u) => u.id === userId);
+  if (!target) return;
+  if (!confirm(`¿Seguro que deseas quitar el acceso a ${target.nombre} (${target.email})?`)) return;
+
+  db.authUsers = users.filter((u) => u.id !== userId);
+  saveDB();
+}
+
+function saveCompanySettings(event) {
+  event.preventDefault();
+  db.companySettings = {
+    nombre: (document.getElementById('cfg-company-name')?.value || 'Cartech Automóviles').trim(),
+    responsable: (document.getElementById('cfg-company-owner')?.value || 'Carlos Téllez').trim(),
+    ciudad: (document.getElementById('cfg-company-city')?.value || 'Bogotá D.C.').trim(),
+    telefono: (document.getElementById('cfg-company-phone')?.value || '').trim()
+  };
+  saveDB();
+  alert('✅ Datos corporativos guardados en la nube.');
 }
 
 // ============================================================================
@@ -4795,6 +4907,7 @@ function updateAllViews() {
   renderDirectorySheet();
   renderPartnersSheet();
   renderOwnExpenses();
+  renderConfigUsersSection();
 }
 
 // Inicialización 100% Cloud con protección obligatoria de inicio de sesión
