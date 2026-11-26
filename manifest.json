@@ -2,16 +2,23 @@
   "name": "Cartech Automóviles",
   "short_name": "Cartech",
   "description": "Sistema Cloud de gestión de inventario de vehículos, hoja de peritaje, CRM de prospectos, socios y gastos para Cartech Automóviles.",
-  "start_url": "./index.html",
+  "start_url": "./",
+  "scope": "./",
   "display": "standalone",
-  "background_color": "#000000",
-  "theme_color": "#000000",
+  "background_color": "#090d16",
+  "theme_color": "#090d16",
   "orientation": "any",
   "icons": [
     {
-      "src": "data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='20' fill='%23000000'/><rect x='8' y='28' width='42' height='44' fill='%23ffffff' stroke='%23003893' stroke-width='3'/><rect x='50' y='28' width='42' height='44' fill='%23003893' stroke='%23003893' stroke-width='3'/><text x='29' y='57' text-anchor='middle' font-family='Arial Black,sans-serif' font-weight='900' font-size='17' fill='%23003893'>CAR</text><text x='71' y='57' text-anchor='middle' font-family='Arial Black,sans-serif' font-weight='900' font-size='15' fill='%23ffffff'>TECH</text></svg>",
-      "sizes": "192x192 512x512",
-      "type": "image/svg+xml",
+      "src": "./public/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "./public/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
       "purpose": "any maskable"
     }
   ]

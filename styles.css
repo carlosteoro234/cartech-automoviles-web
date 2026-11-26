@@ -1473,6 +1473,58 @@ tr:hover td {
   }
 }
 
+/* Botón interactivo tipo Toggle Sí / No para Prueba de Ruta en Peritajes */
+.ruta-toggle-group {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.ruta-toggle-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  border: 1.5px solid var(--border-color);
+  background: var(--bg-input);
+  color: var(--text-muted);
+  font-size: 13.5px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.16s ease;
+}
+
+.ruta-toggle-btn:hover:not(:disabled) {
+  border-color: rgba(148, 163, 184, 0.55);
+  color: #f8fafc;
+}
+
+.ruta-toggle-btn.active-si {
+  background: rgba(16, 185, 129, 0.22);
+  border-color: #10b981;
+  color: #6ee7b7;
+  box-shadow: 0 0 0 2px rgba(16, 185, 129, 0.18);
+}
+
+.ruta-toggle-btn.active-no {
+  background: rgba(245, 158, 11, 0.2);
+  border-color: #f59e0b;
+  color: #fcd34d;
+  box-shadow: 0 0 0 2px rgba(245, 158, 11, 0.18);
+}
+
+.ruta-toggle-btn:disabled,
+.btn:disabled,
+button.btn:disabled {
+  opacity: 0.42 !important;
+  cursor: not-allowed !important;
+  pointer-events: none;
+  filter: grayscale(65%);
+  box-shadow: none !important;
+}
+
 @media (max-width: 600px) {
   #sheet-home.active {
     min-height: calc(100vh - 96px);

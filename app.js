@@ -713,14 +713,32 @@ function calculateVehicleFinancials(veh) {
   };
 }
 
+function getCurrentMonthYYYYMM() {
+  return getTodayISO().slice(0, 7);
+}
+
+function formatMonthLabelES(ym) {
+  if (!ym || !/^\d{4}-\d{2}$/.test(ym)) return ym || 'Mes actual';
+  const [y, m] = ym.split('-');
+  const names = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
+  const idx = Math.max(0, Math.min(11, Number(m) - 1));
+  return `${names[idx]} ${y}`;
+}
+
 // Calcula el resumen global de Capital Base, Invertido Activo, Disponible y Ganancias por Pagar por Socio
-function calculateGlobalCapitalBreakdown() {
+function calculateGlobalCapitalBreakdown(targetMonth = null) {
+  const activeMonth = targetMonth || getCurrentMonthYYYYMM();
   let capitalTotalInvertidoGlobal = 0;
   let capitalInvertidoPropioCarlos = 0;
   let capitalInvertidoTotalSocios = 0;
   let carrosActivosCarlos = 0;
   let gananciasNetasCarlosVendidos = 0;
   let reembolsosCarlosVendidos = 0;
+  let gananciasNetasCarlosMes = 0;
+  let reembolsosCarlosMes = 0;
+  let gananciasSociosMes = 0;
+  let carrosVendidosMes = 0;
+  const monthlyHistoryMap = {};
 
   const socioStats = {};
   db.partners.forEach((p) => {
@@ -759,6 +777,28 @@ function calculateGlobalCapitalBreakdown() {
     } else {
       gananciasNetasCarlosVendidos += fin.miGananciaNeta;
       reembolsosCarlosVendidos += fin.capitalTotalCarlosEnVehiculo;
+
+      const soldMonth = String(v.fechaVenta || v.fechaCompra || getTodayISO()).slice(0, 7);
+      if (!monthlyHistoryMap[soldMonth]) {
+        monthlyHistoryMap[soldMonth] = {
+          month: soldMonth,
+          carrosVendidos: 0,
+          gananciaCarlos: 0,
+          gananciaSocios: 0,
+          utilidadTotal: 0
+        };
+      }
+      monthlyHistoryMap[soldMonth].carrosVendidos++;
+      monthlyHistoryMap[soldMonth].gananciaCarlos += fin.miGananciaNeta;
+      monthlyHistoryMap[soldMonth].gananciaSocios += fin.totalPagosSocios;
+      monthlyHistoryMap[soldMonth].utilidadTotal += fin.gananciaNeta;
+
+      if (soldMonth === activeMonth) {
+        carrosVendidosMes++;
+        gananciasNetasCarlosMes += fin.miGananciaNeta;
+        reembolsosCarlosMes += fin.capitalTotalCarlosEnVehiculo;
+        gananciasSociosMes += fin.totalPagosSocios;
+      }
     }
 
     // Contabilizar participación en carros activos y ganancias en vendidos por socio
@@ -800,12 +840,18 @@ function calculateGlobalCapitalBreakdown() {
   const liquidezTotalDisponible = liquidezBancos + liquidezEfectivo;
 
   return {
+    activeMonth,
     capitalTotalInvertidoGlobal,
     capitalInvertidoPropioCarlos,
     capitalInvertidoTotalSocios,
     carrosActivosCarlos,
     gananciasNetasCarlosVendidos,
     reembolsosCarlosVendidos,
+    gananciasNetasCarlosMes,
+    reembolsosCarlosMes,
+    gananciasSociosMes,
+    carrosVendidosMes,
+    monthlyHistoryMap,
     socioStats,
     liquidezBancos,
     liquidezEfectivo,
@@ -813,13 +859,14 @@ function calculateGlobalCapitalBreakdown() {
   };
 }
 
-function renderCapitalBreakdownCards(containerId) {
+function renderCapitalBreakdownCards(containerId, targetMonth = null) {
   const container = document.getElementById(containerId);
   if (!container) return;
 
-  const cap = calculateGlobalCapitalBreakdown();
+  const cap = calculateGlobalCapitalBreakdown(targetMonth);
+  const monthLabel = formatMonthLabelES(cap.activeMonth);
 
-  // Tarjeta 1: Carlos (Capital Propio — sin Capital Base global, con acumulado separado de Ganancias Netas)
+  // Tarjeta 1: Carlos (Capital Propio — sin Capital Base global, con Ganancias Netas del mes seleccionado)
   let html = `
     <div class="partner-capital-card is-carlos" style="gap: 6px;">
       <div style="display:flex; justify-content:space-between; align-items:center;">
@@ -833,8 +880,8 @@ function renderCapitalBreakdownCards(containerId) {
         Dinero libre (Caja/Bancos): <strong style="color:#34d399;">${formatCOP(cap.liquidezTotalDisponible)}</strong>
       </div>
       <div style="display:flex; justify-content:space-between; align-items:center; font-size:11.5px; background:rgba(59,130,246,0.12); padding:5px 8px; border-radius:6px; margin-top:2px;">
-        <span style="color:#bfdbfe;">🏆 Ganancias Netas Carlos:</span>
-        <strong style="color:#38bdf8;">${formatCOP(cap.gananciasNetasCarlosVendidos)}</strong>
+        <span style="color:#bfdbfe;">🏆 Ganancias (${escapeHtml(monthLabel)}):</span>
+        <strong style="color:#38bdf8;">${formatCOP(cap.gananciasNetasCarlosMes)}</strong>
       </div>
     </div>
   `;
@@ -2508,6 +2555,19 @@ function getPeritajeManualCostsFromModalDOM() {
   return costosManuales;
 }
 
+function setPruebaRutaToggle(val) {
+  const normalized = val === 'NO' ? 'NO' : 'SI';
+  const hiddenEl = document.getElementById('per-prueba-ruta');
+  if (hiddenEl) hiddenEl.value = normalized;
+
+  const btnSi = document.getElementById('btn-ruta-si');
+  const btnNo = document.getElementById('btn-ruta-no');
+  if (btnSi) btnSi.classList.toggle('active-si', normalized === 'SI');
+  if (btnNo) btnNo.classList.toggle('active-no', normalized === 'NO');
+
+  onPruebaRutaChange();
+}
+
 function onPruebaRutaChange() {
   const pruebaRuta = document.getElementById('per-prueba-ruta')?.value || 'SI';
   const mecCard = document.getElementById('zone-card-zonaMecanica');
@@ -2627,7 +2687,6 @@ function openPeritajeModal(targetId, sourceType = 'PROSPECT') {
     container.innerHTML = buildPeritajeDetailedSectionsHTML(p.detalles || {}, p.costosManuales || {}, isReadOnly);
   }
 
-  document.getElementById('per-prueba-ruta').value = p.pruebaRuta === 'NO' ? 'NO' : 'SI';
   document.getElementById('per-tipo-tapiceria').value = p.tipoTapiceria || 'Tela';
   document.getElementById('per-docs-estado').value = p.docsEstado || 'Al día / Listo para traspaso';
   document.getElementById('per-docs-notas').value = p.docsNotas || '';
@@ -2641,12 +2700,12 @@ function openPeritajeModal(targetId, sourceType = 'PROSPECT') {
   if (roBanner) roBanner.style.display = isReadOnly ? 'block' : 'none';
   if (saveBtn) saveBtn.style.display = isReadOnly ? 'none' : 'inline-flex';
 
-  ['per-prueba-ruta', 'per-tipo-tapiceria', 'per-docs-estado', 'per-docs-notas', 'per-veredicto', 'per-observaciones', 'per-fecha'].forEach((elId) => {
+  ['per-tipo-tapiceria', 'per-docs-estado', 'per-docs-notas', 'per-veredicto', 'per-observaciones', 'per-fecha', 'btn-ruta-si', 'btn-ruta-no'].forEach((elId) => {
     const el = document.getElementById(elId);
     if (el) el.disabled = isReadOnly;
   });
 
-  onPruebaRutaChange();
+  setPruebaRutaToggle(p.pruebaRuta === 'NO' ? 'NO' : 'SI');
   document.getElementById('modal-peritaje').classList.add('open');
 }
 
@@ -3123,13 +3182,15 @@ function syncProspectToDirectory(prospect) {
     vehSummary = linkedNames.join(' • ');
   }
 
-  // Buscar duplicado por ID vinculado, teléfono normalizado o nombre exacto
+  // Buscar duplicado por ID vinculado o teléfono normalizado (y solo por nombre si no hay teléfono)
   const existingIdx = db.directoryProfiles.findIndex((item) => {
     if (prospect.id && item.linkedProspectId && item.linkedProspectId === prospect.id) return true;
     const itemPhone = normalizePhoneKey(item.telefono);
     if (normPhone && normPhone.length >= 7 && itemPhone && itemPhone === normPhone) return true;
-    const itemName = String(item.nombre || '').trim().toLowerCase();
-    if (normName && itemName && itemName === normName) return true;
+    if (!normPhone) {
+      const itemName = String(item.nombre || '').trim().toLowerCase();
+      if (normName && itemName && itemName === normName) return true;
+    }
     return false;
   });
 
@@ -3174,6 +3235,22 @@ function syncProspectToDirectory(prospect) {
       notas: prospect.notas || '',
       updatedAt: Date.now()
     });
+  }
+
+  prospect.syncedToDirectory = true;
+}
+
+function backfillUnsyncedProspectsToDirectory() {
+  if (!Array.isArray(db.prospects) || db.prospects.length === 0) return;
+  let changed = false;
+  db.prospects.forEach((p) => {
+    if (!p || p.syncedToDirectory) return;
+    if (!p.nombre && !p.telefono) return;
+    syncProspectToDirectory(p);
+    changed = true;
+  });
+  if (changed) {
+    saveDB();
   }
 }
 
@@ -3377,22 +3454,36 @@ function sendSelectedWhatsAppMessage() {
 // ============================================================================
 // HOJA 4: BASE DE DATOS DE SOCIOS, CAPITAL INDIVIDUALIZADO Y GANANCIAS
 // ============================================================================
+function resetSociosMonthToCurrent() {
+  const mesEl = document.getElementById('filter-socios-mes');
+  if (mesEl) mesEl.value = getCurrentMonthYYYYMM();
+  renderPartnersSheet();
+}
+
+function selectSociosHistoryMonth(ym) {
+  const mesEl = document.getElementById('filter-socios-mes');
+  if (mesEl && ym) mesEl.value = ym;
+  renderPartnersSheet();
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
 function renderPartnersSheet() {
-  const cap = calculateGlobalCapitalBreakdown();
+  const mesEl = document.getElementById('filter-socios-mes');
+  const currentMonth = getCurrentMonthYYYYMM();
+  if (mesEl && !mesEl.value) {
+    mesEl.value = currentMonth;
+  }
+  const selectedMonth = (mesEl && mesEl.value) ? mesEl.value : currentMonth;
+  const monthLabel = formatMonthLabelES(selectedMonth);
+  const isCurrentMonth = selectedMonth === currentMonth;
+
+  const cap = calculateGlobalCapitalBreakdown(selectedMonth);
 
   let totalGananciasPorPagar = 0;
   let totalGananciasPagadas = 0;
   Object.values(cap.socioStats).forEach((st) => {
     totalGananciasPorPagar += st.gananciasPorPagar || 0;
     totalGananciasPagadas += st.gananciasPagadas || 0;
-  });
-
-  let totalMiGananciaVendidos = 0;
-  db.vehicles.forEach((v) => {
-    const fin = calculateVehicleFinancials(v);
-    if (v.estado === 'Vendido') {
-      totalMiGananciaVendidos += fin.miGananciaNeta;
-    }
   });
 
   const kpisEl = document.getElementById('socios-kpis');
@@ -3404,9 +3495,9 @@ function renderPartnersSheet() {
         <div class="kpi-sub">Carlos: ${formatCOP(cap.capitalInvertidoPropioCarlos)} • Socios: ${formatCOP(cap.capitalInvertidoTotalSocios)}</div>
       </div>
       <div class="kpi-card kpi-green">
-        <div class="kpi-label"><span>Ganancias Netas de Carlos (Acumulado)</span> <span>🏆</span></div>
-        <div class="kpi-value" style="color: #34d399;">${formatCOP(cap.gananciasNetasCarlosVendidos)}</div>
-        <div class="kpi-sub">Solo utilidades • Reembolsos de gastos/compra aparte: ${formatCOP(cap.reembolsosCarlosVendidos)}</div>
+        <div class="kpi-label"><span>Ganancias Netas Carlos (${escapeHtml(monthLabel)})</span> <span>🏆</span></div>
+        <div class="kpi-value" style="color: #34d399;">${formatCOP(cap.gananciasNetasCarlosMes)}</div>
+        <div class="kpi-sub">${isCurrentMonth ? 'Solo mes en curso' : 'Mes consultado'} (${formatNumberWithDots(cap.carrosVendidosMes)} vendidos) • Reembolsos aparte: ${formatCOP(cap.reembolsosCarlosMes)}</div>
       </div>
       <div class="kpi-card kpi-amber">
         <div class="kpi-label"><span>Ganancias por Pagar a Socios</span> <span>💸</span></div>
@@ -3416,7 +3507,45 @@ function renderPartnersSheet() {
     `;
   }
 
-  renderCapitalBreakdownCards('socios-capital-breakdown');
+  renderCapitalBreakdownCards('socios-capital-breakdown', selectedMonth);
+
+  // Historial Mensual de Ganancias Netas (todos los meses almacenados sin borrarse)
+  const historyTbody = document.getElementById('socios-monthly-history-tbody');
+  if (historyTbody) {
+    const monthsList = Object.values(cap.monthlyHistoryMap || {}).sort((a, b) => b.month.localeCompare(a.month));
+    if (monthsList.length === 0) {
+      historyTbody.innerHTML = `
+        <tr>
+          <td colspan="6" style="text-align:center; padding: 18px; color: var(--text-muted);">
+            Aún no hay ventas cerradas registradas para construir el historial mensual.
+          </td>
+        </tr>
+      `;
+    } else {
+      historyTbody.innerHTML = monthsList
+        .map((m) => {
+          const isSelected = m.month === selectedMonth;
+          return `
+            <tr style="${isSelected ? 'background: rgba(59, 130, 246, 0.12);' : ''}">
+              <td style="font-weight: 700; color: #f8fafc;">
+                ${escapeHtml(formatMonthLabelES(m.month))}
+                ${m.month === currentMonth ? ' <span class="badge status-vendido" style="font-size:10px; padding:2px 6px;">Mes Actual</span>' : ''}
+              </td>
+              <td><strong>${formatNumberWithDots(m.carrosVendidos)}</strong> vendido(s)</td>
+              <td style="font-weight: 700; color: #38bdf8;">${formatCOP(m.gananciaCarlos)}</td>
+              <td style="font-weight: 700; color: #fcd34d;">${formatCOP(m.gananciaSocios)}</td>
+              <td style="font-weight: 800; color: #34d399;">${formatCOP(m.utilidadTotal)}</td>
+              <td>
+                <button class="btn ${isSelected ? 'btn-primary' : 'btn-outline'} btn-sm" onclick="selectSociosHistoryMonth('${m.month}')">
+                  ${isSelected ? '✓ Viendo' : '🔍 Ver mes'}
+                </button>
+              </td>
+            </tr>
+          `;
+        })
+        .join('');
+    }
+  }
 
   const partnersTbody = document.getElementById('partners-db-tbody');
   if (partnersTbody) {
@@ -3443,6 +3572,7 @@ function renderPartnersSheet() {
           };
           const esInv = p.tipo === 'Inversionista';
           const dispColor = st.capitalDisponible >= 0 ? '#34d399' : '#f87171';
+          const hasPendingProfit = st.gananciasPorPagar > 0;
           return `
             <tr>
               <td>
@@ -3468,7 +3598,7 @@ function renderPartnersSheet() {
                 ${esInv ? formatCOP(st.capitalDisponible) : '<span style="font-weight:400;">N/A</span>'}
               </td>
               <td>
-                <div style="font-weight: 800; color: ${st.gananciasPorPagar > 0 ? '#34d399' : '#94a3b8'}; font-size: 14.5px;">
+                <div style="font-weight: 800; color: ${hasPendingProfit ? '#34d399' : '#94a3b8'}; font-size: 14.5px;">
                   ${formatCOP(st.gananciasPorPagar)}
                 </div>
                 <div style="font-size: 11px; color: var(--text-muted);">
@@ -3478,7 +3608,7 @@ function renderPartnersSheet() {
               <td>
                 <div style="display: flex; gap: 6px; flex-wrap: wrap;">
                   ${esInv ? `<button class="btn btn-outline btn-sm" onclick="openPartnerCapitalMovModal('${p.id}')" title="Registrar Aumento o Retiro de Capital Base">💰 ± Base</button>` : ''}
-                  <button class="btn ${st.gananciasPorPagar > 0 ? 'btn-success' : 'btn-outline'} btn-sm" onclick="openPartnerProfitPayModal('${p.id}')" title="Liquidar / Marcar ganancia como pagada">💸 Liquidar</button>
+                  <button class="btn ${hasPendingProfit ? 'btn-success' : 'btn-outline'} btn-sm" ${hasPendingProfit ? '' : 'disabled'} onclick="openPartnerProfitPayModal('${p.id}')" title="${hasPendingProfit ? 'Liquidar / Marcar ganancia como pagada' : 'Sin saldo pendiente por liquidar'}">💸 Liquidar</button>
                   <button class="btn btn-outline btn-sm" onclick="openPartnerModal('${p.id}')" title="Editar Socio">✏️</button>
                   <button class="btn btn-danger-ghost btn-sm" onclick="deletePartner('${p.id}')" title="Eliminar Socio">🗑️</button>
                 </div>
@@ -5588,6 +5718,18 @@ function renderPartnerProfitPayModalContent(p) {
     `;
   }
 
+  const submitBtn = document.getElementById('btn-ppay-submit');
+  const montoInput = document.getElementById('ppay-monto');
+  const hasPending = st.gananciasPorPagar > 0;
+  if (submitBtn) {
+    submitBtn.disabled = !hasPending;
+    submitBtn.textContent = hasPending ? '✅ Marcar Ganancia como Pagada' : '✅ Sin Saldo Pendiente';
+  }
+  if (montoInput) {
+    montoInput.disabled = !hasPending;
+    montoInput.value = hasPending ? formatNumberWithDots(Math.round(st.gananciasPorPagar)) : '';
+  }
+
   const tbody = document.getElementById('ppay-history-tbody');
   const pays = Array.isArray(p.profitPayments) ? p.profitPayments : [];
   if (tbody) {
@@ -5613,6 +5755,10 @@ function savePartnerProfitPayment(event) {
   const p = db.partners.find((item) => item.id === partnerId);
   if (!p) return;
 
+  const cap = calculateGlobalCapitalBreakdown();
+  const st = cap.socioStats[p.id] || { gananciasPorPagar: 0 };
+  if (st.gananciasPorPagar <= 0) return;
+
   const monto = parseCurrencyInput(document.getElementById('ppay-monto').value);
   const fecha = document.getElementById('ppay-fecha').value || getTodayISO();
   const nota = document.getElementById('ppay-nota').value.trim();
@@ -5627,7 +5773,6 @@ function savePartnerProfitPayment(event) {
   });
 
   saveDB();
-  document.getElementById('ppay-monto').value = '';
   document.getElementById('ppay-nota').value = '';
   renderPartnerProfitPayModalContent(p);
 }
@@ -5922,23 +6067,36 @@ function importBackupJSON(event) {
 // INSTALACIÓN PWA (PC / POCO F8 ULTRA / iOS)
 // ============================================================================
 let deferredPrompt = null;
+
+function setPWAInstallButtonsVisible(visible) {
+  const isStandalone =
+    window.matchMedia('(display-mode: standalone)').matches ||
+    window.navigator.standalone === true;
+  const show = Boolean(visible && !isStandalone);
+  ['btn-install-pwa-topbar', 'btn-install-pwa-config'].forEach((id) => {
+    const btn = document.getElementById(id);
+    if (btn) btn.style.display = show ? 'inline-flex' : 'none';
+  });
+}
+
 window.addEventListener('beforeinstallprompt', (e) => {
   e.preventDefault();
   deferredPrompt = e;
+  setPWAInstallButtonsVisible(true);
+});
+
+window.addEventListener('appinstalled', () => {
+  deferredPrompt = null;
+  setPWAInstallButtonsVisible(false);
 });
 
 async function triggerInstallPWA() {
-  if (deferredPrompt) {
-    deferredPrompt.prompt();
-    await deferredPrompt.userChoice;
-    deferredPrompt = null;
-  } else {
-    alert(
-      'Para instalar Cartech Automóviles como App:\n\n' +
-      '• En tu POCO F8 Ultra (Chrome): Abre el menú (⋮) > "Instalar aplicación".\n' +
-      '• En PC (Chrome / Edge): Haz clic en el ícono de instalar en la barra de direcciones o usa Iniciar_App_Escritorio.bat.\n' +
-      '• En iPhone / iPad (Safari): Toca Compartir (⬆️) > "Agregar a inicio".'
-    );
+  if (!deferredPrompt) return;
+  deferredPrompt.prompt();
+  const choice = await deferredPrompt.userChoice;
+  deferredPrompt = null;
+  if (choice && choice.outcome === 'accepted') {
+    setPWAInstallButtonsVisible(false);
   }
 }
 
@@ -5970,6 +6128,7 @@ function updateAllViews() {
 
 // Inicialización 100% Cloud con protección obligatoria de inicio de sesión
 document.addEventListener('DOMContentLoaded', () => {
+  backfillUnsyncedProspectsToDirectory();
   applyAuthUIState();
   pullFromCloud();
   startRealtimeCloudListener();

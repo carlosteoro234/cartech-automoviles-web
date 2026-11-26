@@ -1,16 +1,17 @@
-const CACHE_NAME = 'cartech-autos-v18';
-const ASSETS = [
+const CACHE_NAME = 'cartech-autos-v19';
+const OFFLINE_ASSETS = [
   './',
   './index.html',
   './styles.css',
   './app.js',
   './manifest.json',
-  './logo-cartech.jpg'
+  './public/icon-192.png',
+  './public/icon-512.png'
 ];
 
 self.addEventListener('install', (event) => {
   event.waitUntil(
-    caches.open(CACHE_NAME).then((cache) => cache.addAll(ASSETS))
+    caches.open(CACHE_NAME).then((cache) => cache.addAll(OFFLINE_ASSETS)).catch(() => {})
   );
   self.skipWaiting();
 });
@@ -24,24 +25,26 @@ self.addEventListener('activate', (event) => {
   self.clients.claim();
 });
 
-// Estrategia Stale-While-Revalidate para apertura instantánea (0ms) sin pantallas de espera
+// Estrategia Network-First: prioridad siempre a la red (sin caché vieja agresiva ni afectar sincronización Cloud)
 self.addEventListener('fetch', (event) => {
-  if (event.request.url.includes('ntfy.sh') || event.request.url.includes('/api/')) {
-    event.respondWith(fetch(event.request));
+  const url = event.request.url;
+  if (
+    event.request.method !== 'GET' ||
+    url.includes('ntfy.sh') ||
+    url.includes('/api/')
+  ) {
     return;
   }
+
   event.respondWith(
-    caches.match(event.request).then((cachedResponse) => {
-      const fetchPromise = fetch(event.request)
-        .then((networkResponse) => {
-          if (networkResponse && networkResponse.status === 200 && event.request.method === 'GET') {
-            const responseClone = networkResponse.clone();
-            caches.open(CACHE_NAME).then((cache) => cache.put(event.request, responseClone));
-          }
-          return networkResponse;
-        })
-        .catch(() => cachedResponse);
-      return cachedResponse || fetchPromise;
-    })
+    fetch(event.request)
+      .then((networkResponse) => {
+        if (networkResponse && networkResponse.status === 200 && networkResponse.type === 'basic') {
+          const responseClone = networkResponse.clone();
+          caches.open(CACHE_NAME).then((cache) => cache.put(event.request, responseClone));
+        }
+        return networkResponse;
+      })
+      .catch(() => caches.match(event.request))
   );
 });
