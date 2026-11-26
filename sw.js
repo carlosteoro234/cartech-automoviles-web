@@ -1,4 +1,4 @@
-const CACHE_NAME = 'cartech-autos-v15';
+const CACHE_NAME = 'cartech-autos-v16';
 const ASSETS = [
   './',
   './index.html',
