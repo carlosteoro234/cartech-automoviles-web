@@ -719,6 +719,8 @@ function calculateGlobalCapitalBreakdown() {
   let capitalInvertidoPropioCarlos = 0;
   let capitalInvertidoTotalSocios = 0;
   let carrosActivosCarlos = 0;
+  let gananciasNetasCarlosVendidos = 0;
+  let reembolsosCarlosVendidos = 0;
 
   const socioStats = {};
   db.partners.forEach((p) => {
@@ -754,6 +756,9 @@ function calculateGlobalCapitalBreakdown() {
           socioStats[pid].capitalActivo += capMonto;
         }
       });
+    } else {
+      gananciasNetasCarlosVendidos += fin.miGananciaNeta;
+      reembolsosCarlosVendidos += fin.capitalTotalCarlosEnVehiculo;
     }
 
     // Contabilizar participación en carros activos y ganancias en vendidos por socio
@@ -799,6 +804,8 @@ function calculateGlobalCapitalBreakdown() {
     capitalInvertidoPropioCarlos,
     capitalInvertidoTotalSocios,
     carrosActivosCarlos,
+    gananciasNetasCarlosVendidos,
+    reembolsosCarlosVendidos,
     socioStats,
     liquidezBancos,
     liquidezEfectivo,
@@ -812,18 +819,22 @@ function renderCapitalBreakdownCards(containerId) {
 
   const cap = calculateGlobalCapitalBreakdown();
 
-  // Tarjeta 1: Carlos (Capital Propio — sin Capital Base global)
+  // Tarjeta 1: Carlos (Capital Propio — sin Capital Base global, con acumulado separado de Ganancias Netas)
   let html = `
-    <div class="partner-capital-card is-carlos">
+    <div class="partner-capital-card is-carlos" style="gap: 6px;">
       <div style="display:flex; justify-content:space-between; align-items:center;">
         <span style="font-size:12px; font-weight:700; color:#60a5fa; text-transform:uppercase;">👑 Capital Propio (Carlos)</span>
         <span class="badge condicion-nuevo">${formatNumberWithDots(cap.carrosActivosCarlos)} carros</span>
       </div>
-      <div style="font-size:20px; font-weight:800; color:#f8fafc; margin: 4px 0;">
+      <div style="font-size:20px; font-weight:800; color:#f8fafc; margin: 2px 0;">
         ${formatCOP(cap.capitalInvertidoPropioCarlos)}
       </div>
       <div style="font-size:11.5px; color:var(--text-muted);">
-        Dinero libre disponible (Caja/Bancos): <strong style="color:#34d399;">${formatCOP(cap.liquidezTotalDisponible)}</strong>
+        Dinero libre (Caja/Bancos): <strong style="color:#34d399;">${formatCOP(cap.liquidezTotalDisponible)}</strong>
+      </div>
+      <div style="display:flex; justify-content:space-between; align-items:center; font-size:11.5px; background:rgba(59,130,246,0.12); padding:5px 8px; border-radius:6px; margin-top:2px;">
+        <span style="color:#bfdbfe;">🏆 Ganancias Netas Carlos:</span>
+        <strong style="color:#38bdf8;">${formatCOP(cap.gananciasNetasCarlosVendidos)}</strong>
       </div>
     </div>
   `;
@@ -3393,9 +3404,9 @@ function renderPartnersSheet() {
         <div class="kpi-sub">Carlos: ${formatCOP(cap.capitalInvertidoPropioCarlos)} • Socios: ${formatCOP(cap.capitalInvertidoTotalSocios)}</div>
       </div>
       <div class="kpi-card kpi-green">
-        <div class="kpi-label"><span>Ganancia Neta Carlos (Vendidos)</span> <span>🏆</span></div>
-        <div class="kpi-value" style="color: #34d399;">${formatCOP(totalMiGananciaVendidos)}</div>
-        <div class="kpi-sub">Utilidad neta acumulada de carros liquidados</div>
+        <div class="kpi-label"><span>Ganancias Netas de Carlos (Acumulado)</span> <span>🏆</span></div>
+        <div class="kpi-value" style="color: #34d399;">${formatCOP(cap.gananciasNetasCarlosVendidos)}</div>
+        <div class="kpi-sub">Solo utilidades • Reembolsos de gastos/compra aparte: ${formatCOP(cap.reembolsosCarlosVendidos)}</div>
       </div>
       <div class="kpi-card kpi-amber">
         <div class="kpi-label"><span>Ganancias por Pagar a Socios</span> <span>💸</span></div>
@@ -4033,25 +4044,58 @@ function renderVehicleFundingRows() {
   recalcVehicleFundingTotals();
 }
 
+function recalculateProportionalInvestorPercentages() {
+  const capCarlos = parseCurrencyInput(document.getElementById('veh-capital-carlos')?.value);
+  if (capCarlos !== 0 || currentVehicleFundingRows.length === 0) return;
+
+  // Si algún socio ya fue editado manualmente en su %, respetar ese pacto manual
+  const hasManual = currentVehicleFundingRows.some((r) => r.manualPct === true);
+  if (hasManual) return;
+
+  const totalSociosMonto = currentVehicleFundingRows.reduce((acc, r) => acc + (Number(r.monto) || 0), 0);
+  if (totalSociosMonto > 0) {
+    currentVehicleFundingRows.forEach((r) => {
+      const m = Number(r.monto) || 0;
+      r.pctGanancia = Number(((m / totalSociosMonto) * 50).toFixed(2));
+    });
+  } else {
+    const equalPct = Number((50 / currentVehicleFundingRows.length).toFixed(2));
+    currentVehicleFundingRows.forEach((r) => {
+      r.pctGanancia = equalPct;
+    });
+  }
+}
+
 function addVehicleFundingRow(partnerId = '', monto = 0, pctGanancia = null) {
-  const mode = document.getElementById('veh-modalidad-socio')?.value || 'INVERSIONISTA';
-  const defaultPct = pctGanancia !== null ? pctGanancia : (currentVehicleFundingRows.length === 0 && mode === 'INVERSIONISTA' ? 50 : 25);
   currentVehicleFundingRows.push({
     partnerId: partnerId || '',
     monto: Number(monto) || 0,
-    pctGanancia: defaultPct
+    pctGanancia: pctGanancia !== null ? pctGanancia : 50,
+    manualPct: pctGanancia !== null && currentVehicleFundingRows.length > 0
   });
+  recalculateProportionalInvestorPercentages();
   renderVehicleFundingRows();
 }
 
 function removeVehicleFundingRow(idx) {
   currentVehicleFundingRows.splice(idx, 1);
+  recalculateProportionalInvestorPercentages();
   renderVehicleFundingRows();
 }
 
 function updateVehicleFundingRow(idx, field, value) {
   if (!currentVehicleFundingRows[idx]) return;
   currentVehicleFundingRows[idx][field] = value;
+  if (field === 'pctGanancia') {
+    currentVehicleFundingRows[idx].manualPct = true;
+  } else if (field === 'monto') {
+    recalculateProportionalInvestorPercentages();
+    // Actualizar los inputs de % en pantalla sin perder el foco del monto que se está escribiendo
+    const pctInputs = document.querySelectorAll('#veh-partner-funding-rows input[type="number"]');
+    currentVehicleFundingRows.forEach((r, i) => {
+      if (pctInputs[i]) pctInputs[i].value = r.pctGanancia;
+    });
+  }
   if (field === 'partnerId' && idx === 0) {
     const selInv = document.getElementById('veh-socio-inversionista');
     if (selInv && value) selInv.value = value;
@@ -4089,6 +4133,7 @@ function autoCompleteRemainingFunding() {
   } else {
     const lastIdx = currentVehicleFundingRows.length - 1;
     currentVehicleFundingRows[lastIdx].monto = (Number(currentVehicleFundingRows[lastIdx].monto) || 0) + faltante;
+    recalculateProportionalInvestorPercentages();
     renderVehicleFundingRows();
   }
 }
@@ -4579,20 +4624,28 @@ function renderVehicleExpensesModalContent(v) {
       .join('');
   }
 
-  // Desglose claro de Reintegro de Capital por Socio + Carlos + Reparto de Utilidades
+  // Desglose claro y separado: Reintegro Socios, Reembolso Carlos, Ganancia Neta Carlos y Ganancia por Pagar a Socios
   const sociosReintegroRows = Object.entries(fin.capitalPorSocioMap)
     .filter(([, monto]) => monto > 0)
     .map(([pid, monto]) => {
       const pObj = db.partners.find((p) => p.id === pid);
-      const ganSocio = fin.gananciaPorSocioMap[pid] || 0;
+      return `
+        <div class="split-row">
+          <span>💼 Reintegro de Capital a ${escapeHtml(pObj ? pObj.nombre : 'Socio')} (vuelve a Disponible, Base intacta):</span>
+          <strong style="color: #fcd34d;">${formatCOP(monto)}</strong>
+        </div>
+      `;
+    })
+    .join('');
+
+  const sociosGananciaRows = Object.entries(fin.gananciaPorSocioMap)
+    .filter(([pid]) => (fin.pctPorSocioMap[pid] || 0) > 0 || (fin.gananciaPorSocioMap[pid] || 0) !== 0)
+    .map(([pid, ganSocio]) => {
+      const pObj = db.partners.find((p) => p.id === pid);
       const pctSocio = fin.pctPorSocioMap[pid] || 0;
       return `
         <div class="split-row">
-          <span>💼 Reintegro Capital ${escapeHtml(pObj ? pObj.nombre : 'Socio')} (regresa a su Disponible, Base intacta):</span>
-          <strong style="color: #fcd34d;">${formatCOP(monto)}</strong>
-        </div>
-        <div class="split-row">
-          <span>↳ Ganancia por Pagar a ${escapeHtml(pObj ? pObj.nombre : 'Socio')} (${pctSocio.toFixed(pctSocio % 1 === 0 ? 0 : 1)}% — aparte de su Base):</span>
+          <span>💸 Ganancia de ${escapeHtml(pObj ? pObj.nombre : 'Socio')} (${pctSocio.toFixed(pctSocio % 1 === 0 ? 0 : 1)}% — suma a "Ganancias por Pagar", aparte de su Base):</span>
           <strong style="color: #34d399;">${formatCOP(ganSocio)}</strong>
         </div>
       `;
@@ -4615,14 +4668,19 @@ function renderVehicleExpensesModalContent(v) {
       <span><strong>(=) Utilidad Neta a Repartir:</strong></span>
       <strong style="color: ${fin.gananciaNeta >= 0 ? '#10b981' : '#ef4444'}; font-size: 15px;">${formatCOP(fin.gananciaNeta)}</strong>
     </div>
-    <div class="split-row" style="border-top: 1px dashed var(--border-color); padding-top: 6px; margin-top: 4px;">
-      <span>👑 Capital Recuperado Carlos (Compra ${formatCOP(fin.capitalCompraCarlos)} + Gastos Carlos ${formatCOP(fin.gastosPagadosPorCarlos)}):</span>
-      <strong style="color: #38bdf8;">${formatCOP(fin.capitalTotalCarlosEnVehiculo)}</strong>
+    <div style="border-top: 1px dashed var(--border-color); padding-top: 6px; margin-top: 4px; display: flex; flex-direction: column; gap: 4px;">
+      ${sociosReintegroRows}
+      <div class="split-row">
+        <span>👑 Reembolso a Carlos (Compra ${formatCOP(fin.capitalCompraCarlos)} + Alistamientos propios ${formatCOP(fin.gastosPagadosPorCarlos)} — vuelve a caja):</span>
+        <strong style="color: #93c5fd;">${formatCOP(fin.capitalTotalCarlosEnVehiculo)}</strong>
+      </div>
     </div>
-    ${sociosReintegroRows}
-    <div class="split-row" style="border-top: 1px solid var(--border-color); padding-top: 6px; margin-top: 4px;">
-      <span><strong>🏆 Ganancia Libre Carlos (${fin.miPorcentaje.toFixed(1)}%):</strong></span>
-      <strong style="color: #38bdf8; font-size: 16px;">${formatCOP(fin.miGananciaNeta)}</strong>
+    <div style="border-top: 1px solid var(--border-color); padding-top: 6px; margin-top: 4px; display: flex; flex-direction: column; gap: 4px;">
+      <div class="split-row">
+        <span><strong>🏆 Ganancia Neta de Carlos (${fin.miPorcentaje.toFixed(fin.miPorcentaje % 1 === 0 ? 0 : 1)}% — suma a "Ganancias Netas de Carlos"):</strong></span>
+        <strong style="color: #38bdf8; font-size: 16px;">${formatCOP(fin.miGananciaNeta)}</strong>
+      </div>
+      ${sociosGananciaRows}
     </div>
   `;
 }
