@@ -1192,6 +1192,9 @@ function applyAuthUIState() {
     if (secEmailEl) secEmailEl.textContent = `${session.nombre || 'Usuario'} (${session.email})`;
 
     updateAllViews();
+    const initialMod = getModuleFromHash();
+    window.history.replaceState({ module: initialMod }, '', `#${initialMod}`);
+    openModule(initialMod, { pushHistory: false });
   } else {
     if (authScreen) authScreen.style.display = 'flex';
     if (appShell) appShell.style.display = 'none';
@@ -1243,8 +1246,8 @@ async function handleLoginSubmit(event) {
       }
       const passEl = document.getElementById('login-password');
       if (passEl) passEl.value = '';
+      window.history.replaceState({ module: 'home' }, '', '#home');
       applyAuthUIState();
-      goHome();
     } else {
       if (errBox) {
         errBox.textContent = '⚠️ Correo o contraseña incorrectos. Verifica tus datos (inicial: carlos@cartech.co / Cartech2026).';
@@ -1395,34 +1398,59 @@ function saveCompanySettings(event) {
 }
 
 // ============================================================================
-// NAVEGACIÓN POR MÓDULOS (SIN PESTAÑAS — PÁGINA PRINCIPAL + VOLVER AL INICIO)
+// NAVEGACIÓN POR MÓDULOS + HISTORIAL REAL (BOTONES LATERALES DEL MOUSE G4 / G5)
 // ============================================================================
+const VALID_MODULES = ['home', 'inventario', 'peritaje', 'prospectos', 'directorio', 'socios', 'gastos-propios', 'dispositivos'];
+
+function getModuleFromHash() {
+  const hashVal = String(window.location.hash || '').replace(/^#/, '').trim();
+  return VALID_MODULES.includes(hashVal) ? hashVal : 'home';
+}
+
 function goHome() {
   openModule('home');
 }
 
-function openModule(moduleId) {
+function openModule(moduleId, options = {}) {
   // Protección obligatoria de rutas internas
   if (!isUserAuthenticated()) {
     applyAuthUIState();
     return;
   }
 
-  currentActiveModule = moduleId;
-  const allModules = ['home', 'inventario', 'peritaje', 'prospectos', 'directorio', 'socios', 'gastos-propios', 'dispositivos'];
-  allModules.forEach((id) => {
-    document.getElementById(`sheet-${id}`)?.classList.toggle('active', id === moduleId);
+  const targetModule = VALID_MODULES.includes(moduleId) ? moduleId : 'home';
+  const pushHistory = options.pushHistory !== false;
+
+  currentActiveModule = targetModule;
+  VALID_MODULES.forEach((id) => {
+    document.getElementById(`sheet-${id}`)?.classList.toggle('active', id === targetModule);
   });
 
   const backBtn = document.getElementById('topbar-btn-home');
   if (backBtn) {
-    backBtn.style.display = moduleId === 'home' ? 'none' : 'inline-flex';
+    backBtn.style.display = targetModule === 'home' ? 'none' : 'inline-flex';
   }
 
-  if (moduleId === 'home') renderHomeDashboard();
-  if (moduleId === 'directorio') renderDirectorySheet();
+  if (pushHistory) {
+    const currentStateMod = window.history.state && window.history.state.module;
+    if (currentStateMod !== targetModule || window.location.hash !== `#${targetModule}`) {
+      window.history.pushState({ module: targetModule }, '', `#${targetModule}`);
+    }
+  }
+
+  if (targetModule === 'home') renderHomeDashboard();
+  if (targetModule === 'directorio') renderDirectorySheet();
+  if (targetModule === 'socios') renderPartnersSheet();
   window.scrollTo({ top: 0, behavior: 'smooth' });
 }
+
+window.addEventListener('popstate', (event) => {
+  if (!isUserAuthenticated()) return;
+  // Cerrar cualquier modal abierto para evitar que quede flotando al navegar atrás/adelante
+  document.querySelectorAll('.modal-backdrop.open').forEach((m) => m.classList.remove('open'));
+  const targetMod = (event.state && event.state.module) || getModuleFromHash();
+  openModule(targetMod, { pushHistory: false });
+});
 
 function switchSheet(sheetId) {
   openModule(sheetId);
@@ -1431,7 +1459,6 @@ function switchSheet(sheetId) {
 function renderHomeDashboard() {
   const cap = calculateGlobalCapitalBreakdown();
   const countDisponibles = db.vehicles.filter((v) => v.estado !== 'Vendido').length;
-  const peritadosCount = db.vehicles.filter((v) => v.peritaje && v.peritaje.veredicto).length;
   const dirCount = (db.directoryProfiles || []).length;
 
   const kpisEl = document.getElementById('home-summary-kpis');
@@ -1459,20 +1486,6 @@ function renderHomeDashboard() {
       </div>
     `;
   }
-
-  const bInv = document.getElementById('home-badge-inventario');
-  const bPer = document.getElementById('home-badge-peritaje');
-  const bPro = document.getElementById('home-badge-prospectos');
-  const bDir = document.getElementById('home-badge-directorio');
-  const bSoc = document.getElementById('home-badge-socios');
-  const bGas = document.getElementById('home-badge-gastos');
-
-  if (bInv) bInv.textContent = `${formatNumberWithDots(db.vehicles.length)} vehículos`;
-  if (bPer) bPer.textContent = `${formatNumberWithDots(peritadosCount)} peritados`;
-  if (bPro) bPro.textContent = `${formatNumberWithDots((db.prospects || []).length)} prospectos`;
-  if (bDir) bDir.textContent = `${formatNumberWithDots(dirCount)} perfiles`;
-  if (bSoc) bSoc.textContent = `${formatNumberWithDots(db.partners.length)} socios`;
-  if (bGas) bGas.textContent = `${formatNumberWithDots(db.ownExpenses.length)} gastos`;
 }
 
 // ============================================================================
@@ -1485,10 +1498,21 @@ function setDirectoryProfileTab(tipoVal) {
   renderDirectorySheet();
 }
 
+function getDirectoryProspectTags(item) {
+  if (!item) return [];
+  const tags = Array.isArray(item.prospectTags) ? [...item.prospectTags] : [];
+  if (item.origenProspecto && !tags.includes(item.origenProspecto)) {
+    tags.push(item.origenProspecto);
+  }
+  return tags.filter((t) => t === 'VENTA' || t === 'COMPRA');
+}
+
 function renderDirectorySheet() {
   const list = Array.isArray(db.directoryProfiles) ? db.directoryProfiles : [];
   const search = (document.getElementById('filter-dir-search')?.value || '').toLowerCase().trim();
 
+  const countVenta = list.filter((x) => getDirectoryProspectTags(x).includes('VENTA')).length;
+  const countCompra = list.filter((x) => getDirectoryProspectTags(x).includes('COMPRA')).length;
   const countCF = list.filter((x) => x.tipo === 'CLIENTE_FINAL').length;
   const countCom = list.filter((x) => x.tipo === 'COMERCIANTE').length;
   const countProv = list.filter((x) => x.tipo === 'PROVEEDOR').length;
@@ -1499,12 +1523,12 @@ function renderDirectorySheet() {
       <div class="kpi-card">
         <div class="kpi-label"><span>Total en Directorio</span> <span>📇</span></div>
         <div class="kpi-value">${formatNumberWithDots(list.length)} perfiles</div>
-        <div class="kpi-sub">Contactos sincronizados en la nube</div>
+        <div class="kpi-sub">Venta: ${formatNumberWithDots(countVenta)} • Compra: ${formatNumberWithDots(countCompra)}</div>
       </div>
       <div class="kpi-card kpi-purple">
         <div class="kpi-label"><span>Clientes Finales</span> <span>👤</span></div>
         <div class="kpi-value">${formatNumberWithDots(countCF)}</div>
-        <div class="kpi-sub">Compradores e interesados finales</div>
+        <div class="kpi-sub">Compradores y dueños registrados</div>
       </div>
       <div class="kpi-card kpi-green">
         <div class="kpi-label"><span>Clientes Comerciantes</span> <span>🏢</span></div>
@@ -1523,6 +1547,8 @@ function renderDirectorySheet() {
   if (tabsEl) {
     const tabs = [
       { id: 'TODOS', label: '📋 Todos', count: list.length },
+      { id: 'CLIENTE_VENTA', label: '🏷️ Cliente de Venta', count: countVenta },
+      { id: 'CLIENTE_COMPRA', label: '🚗 Cliente de Compra', count: countCompra },
       { id: 'CLIENTE_FINAL', label: '👤 Cliente Final', count: countCF },
       { id: 'COMERCIANTE', label: '🏢 Cliente Comerciante', count: countCom },
       { id: 'PROVEEDOR', label: '🔧 Proveedor', count: countProv }
@@ -1540,7 +1566,17 @@ function renderDirectorySheet() {
   }
 
   const filtered = list.filter((item) => {
-    const matchType = currentDirectoryProfileTab === 'TODOS' || item.tipo === currentDirectoryProfileTab;
+    const pTags = getDirectoryProspectTags(item);
+    let matchType = true;
+    if (currentDirectoryProfileTab === 'CLIENTE_VENTA') {
+      matchType = pTags.includes('VENTA');
+    } else if (currentDirectoryProfileTab === 'CLIENTE_COMPRA') {
+      matchType = pTags.includes('COMPRA');
+    } else if (currentDirectoryProfileTab !== 'TODOS') {
+      matchType = item.tipo === currentDirectoryProfileTab;
+    }
+
+    const tagsText = pTags.map((t) => (t === 'VENTA' ? 'cliente de venta' : 'cliente de compra')).join(' ');
     const blob = [
       item.nombre,
       item.telefono,
@@ -1552,7 +1588,8 @@ function renderDirectorySheet() {
       item.especialidad,
       item.direccion,
       item.historialNegocios,
-      item.notas
+      item.notas,
+      tagsText
     ]
       .join(' ')
       .toLowerCase();
@@ -1587,7 +1624,18 @@ function renderDirectorySheet() {
         ? `https://wa.me/${waPhone}?text=${encodeURIComponent(`¡Hola ${item.contactoPrincipal || item.nombre}! Te saluda Carlos de Cartech Automóviles 👋.`)}`
         : '#';
 
-      let badgeHtml = `<span class="badge profile-badge-cliente">👤 Cliente Final</span>`;
+      const pTags = getDirectoryProspectTags(item);
+      const prospectBadgesHtml = pTags
+        .map((t) =>
+          t === 'COMPRA'
+            ? `<span class="badge profile-badge-compra">🚗 Cliente de Compra</span>`
+            : `<span class="badge profile-badge-venta">🏷️ Cliente de Venta</span>`
+        )
+        .join(' ');
+
+      let badgeHtml = pTags.length > 0
+        ? prospectBadgesHtml
+        : `<span class="badge profile-badge-cliente">👤 Cliente Final</span>`;
       let extraColHtml = '';
       let subNameHtml = '';
 
@@ -1597,14 +1645,14 @@ function renderDirectorySheet() {
           ? `<div>🚙 <strong>${escapeHtml(item.vehiculoInteres)}</strong></div>`
           : `<span style="color: var(--text-muted);">Sin vehículo asociado aún</span>`;
       } else if (item.tipo === 'COMERCIANTE') {
-        badgeHtml = `<span class="badge profile-badge-comerciante">🏢 Comerciante</span>`;
+        badgeHtml = `<span class="badge profile-badge-comerciante">🏢 Comerciante</span>${prospectBadgesHtml ? ' ' + prospectBadgesHtml : ''}`;
         subNameHtml = item.contactoPrincipal ? `Contacto: ${escapeHtml(item.contactoPrincipal)}` : '';
         extraColHtml = `
           <div>🏷️ <strong>${escapeHtml(item.especialidad || 'Gama general')}</strong></div>
           ${item.historialNegocios ? `<div style="font-size: 11.5px; color: var(--text-muted); margin-top: 2px;">${escapeHtml(item.historialNegocios)}</div>` : ''}
         `;
       } else if (item.tipo === 'PROVEEDOR') {
-        badgeHtml = `<span class="badge profile-badge-proveedor">🔧 Proveedor</span>`;
+        badgeHtml = `<span class="badge profile-badge-proveedor">🔧 Proveedor</span>${prospectBadgesHtml ? ' ' + prospectBadgesHtml : ''}`;
         const starsCount = Math.min(5, Math.max(1, Number(item.calificacion) || 5));
         const starsStr = '★'.repeat(starsCount) + '☆'.repeat(5 - starsCount);
         extraColHtml = `
@@ -1616,7 +1664,7 @@ function renderDirectorySheet() {
       return `
         <tr>
           <td>
-            <div style="margin-bottom: 4px;">${badgeHtml}</div>
+            <div style="margin-bottom: 4px; display: flex; flex-wrap: wrap; gap: 4px;">${badgeHtml}</div>
             <div style="font-weight: 700; color: #f8fafc;">${escapeHtml(item.nombre)}</div>
             ${subNameHtml ? `<div style="font-size: 11.5px; color: var(--text-muted);">${subNameHtml}</div>` : ''}
           </td>
@@ -1687,7 +1735,8 @@ function openDirectoryModal(profileId = null) {
   } else {
     document.getElementById('modal-dir-title').textContent = '📇 Nuevo Contacto en Directorio y Perfiles';
     document.getElementById('dir-id').value = '';
-    const defaultTipo = currentDirectoryProfileTab !== 'TODOS' ? currentDirectoryProfileTab : 'CLIENTE_FINAL';
+    const validSelectTipos = ['CLIENTE_FINAL', 'COMERCIANTE', 'PROVEEDOR'];
+    const defaultTipo = validSelectTipos.includes(currentDirectoryProfileTab) ? currentDirectoryProfileTab : 'CLIENTE_FINAL';
     document.getElementById('dir-tipo').value = defaultTipo;
   }
 
@@ -1699,6 +1748,7 @@ function saveDirectoryProfile(event) {
   event.preventDefault();
   const id = document.getElementById('dir-id').value;
   const tipo = document.getElementById('dir-tipo').value;
+  const existing = id ? (db.directoryProfiles || []).find((x) => x.id === id) : null;
 
   const payload = {
     id: id || 'dir-' + Date.now(),
@@ -1719,6 +1769,9 @@ function saveDirectoryProfile(event) {
     direccion: tipo === 'PROVEEDOR' ? document.getElementById('dir-prov-direccion').value.trim() : '',
     calificacion: tipo === 'PROVEEDOR' ? Number(document.getElementById('dir-prov-calificacion').value) || 5 : 0,
     notas: document.getElementById('dir-notas').value.trim(),
+    origenProspecto: existing?.origenProspecto || '',
+    prospectTags: existing ? getDirectoryProspectTags(existing) : [],
+    linkedProspectId: existing?.linkedProspectId || '',
     updatedAt: Date.now()
   };
 
@@ -1786,37 +1839,32 @@ function renderInventory() {
       .join('');
   }
 
-  // KPIs Globales con Separación Estricta de Capital Invertido (Total vs Propio Carlos vs Socios vs Liquidez)
-  const cap = calculateGlobalCapitalBreakdown();
-
+  // KPIs enfocados 100% en gestión de vehículos (Capital centralizado en módulo Socios)
   const kpiContainer = document.getElementById('inventario-kpis');
   if (kpiContainer) {
     kpiContainer.innerHTML = `
       <div class="kpi-card">
-        <div class="kpi-label"><span>Capital Total Invertido (Global)</span> <span>🏛️</span></div>
-        <div class="kpi-value">${formatCOP(cap.capitalTotalInvertidoGlobal)}</div>
-        <div class="kpi-sub">${formatNumberWithDots(countDisponibles)} vehículo(s) activos + gastos activos</div>
+        <div class="kpi-label"><span>Vehículos Disponibles</span> <span>🚙</span></div>
+        <div class="kpi-value">${formatNumberWithDots(countDisponibles)} carros</div>
+        <div class="kpi-sub">Activos en inventario (sin vendidos)</div>
       </div>
       <div class="kpi-card kpi-purple">
-        <div class="kpi-label"><span>Capital Invertido Propio (Carlos)</span> <span>👑</span></div>
-        <div class="kpi-value" style="color: #38bdf8;">${formatCOP(cap.capitalInvertidoPropioCarlos)}</div>
-        <div class="kpi-sub">Tu dinero invertido actualmente en carros</div>
+        <div class="kpi-label"><span>Publicados en Venta</span> <span>🔵</span></div>
+        <div class="kpi-value" style="color: #38bdf8;">${formatNumberWithDots(countPublicado)}</div>
+        <div class="kpi-sub">Listos para mostrar a clientes</div>
       </div>
       <div class="kpi-card kpi-amber">
-        <div class="kpi-label"><span>Capital Invertido por Socios</span> <span>🤝</span></div>
-        <div class="kpi-value" style="color: #fcd34d;">${formatCOP(cap.capitalInvertidoTotalSocios)}</div>
-        <div class="kpi-sub">Suma del capital activo puesto por socios</div>
+        <div class="kpi-label"><span>En Preparación / Compra</span> <span>🟡</span></div>
+        <div class="kpi-value" style="color: #fcd34d;">${formatNumberWithDots(countAlistamiento + countCompra)}</div>
+        <div class="kpi-sub">Alistamiento: ${formatNumberWithDots(countAlistamiento)} • Compra: ${formatNumberWithDots(countCompra)}</div>
       </div>
       <div class="kpi-card kpi-green">
-        <div class="kpi-label"><span>Dinero Libre Disponible (Liquidez)</span> <span>🏦</span></div>
-        <div class="kpi-value" style="color: #34d399;">${formatCOP(cap.liquidezTotalDisponible)}</div>
-        <div class="kpi-sub">Bancos: ${formatCOP(cap.liquidezBancos)} • Efectivo: ${formatCOP(cap.liquidezEfectivo)}</div>
+        <div class="kpi-label"><span>Vendidos (Histórico)</span> <span>🏆</span></div>
+        <div class="kpi-value" style="color: #34d399;">${formatNumberWithDots(countVendido)}</div>
+        <div class="kpi-sub">Total registrados: ${formatNumberWithDots(countTodos)} vehículos</div>
       </div>
     `;
   }
-
-  // Renderizar tarjetas de desglose individualizado por socio y Carlos
-  renderCapitalBreakdownCards('inventory-capital-breakdown');
 
   const filtered = db.vehicles.filter((v) => {
     const { color } = getVehicleColorAndKm(v);
@@ -2918,11 +2966,104 @@ function openProspectModal(prospId = null, defaultType = null) {
   document.getElementById('modal-prospect').classList.add('open');
 }
 
+function normalizePhoneKey(phone) {
+  const digits = String(phone || '').replace(/[^0-9]/g, '');
+  if (digits.length >= 10) return digits.slice(-10);
+  return digits;
+}
+
+function syncProspectToDirectory(prospect) {
+  if (!prospect) return;
+  const nombre = String(prospect.nombre || '').trim();
+  const telefono = String(prospect.telefono || '').trim();
+  if (!nombre && !telefono) return;
+
+  if (!Array.isArray(db.directoryProfiles)) db.directoryProfiles = [];
+
+  const normPhone = normalizePhoneKey(telefono);
+  const normName = nombre.toLowerCase();
+  const prospectTag = prospect.tipo === 'COMPRA' ? 'COMPRA' : 'VENTA';
+
+  // Construir resumen del vehículo asociado al prospecto
+  let vehSummary = '';
+  if (prospectTag === 'COMPRA') {
+    vehSummary = [
+      prospect.vehiculoOfrecido,
+      prospect.placaOfrecida ? `(${prospect.placaOfrecida})` : ''
+    ]
+      .filter(Boolean)
+      .join(' ')
+      .trim();
+  } else {
+    const linkedNames = (prospect.vehiculosIds || [])
+      .map((vid) => db.vehicles.find((v) => v.id === vid))
+      .filter(Boolean)
+      .map((v) => `${v.marca} ${v.anio} (${v.placa})`);
+    if (prospect.vehiculoExtra) linkedNames.push(prospect.vehiculoExtra);
+    vehSummary = linkedNames.join(' • ');
+  }
+
+  // Buscar duplicado por ID vinculado, teléfono normalizado o nombre exacto
+  const existingIdx = db.directoryProfiles.findIndex((item) => {
+    if (prospect.id && item.linkedProspectId && item.linkedProspectId === prospect.id) return true;
+    const itemPhone = normalizePhoneKey(item.telefono);
+    if (normPhone && normPhone.length >= 7 && itemPhone && itemPhone === normPhone) return true;
+    const itemName = String(item.nombre || '').trim().toLowerCase();
+    if (normName && itemName && itemName === normName) return true;
+    return false;
+  });
+
+  if (existingIdx !== -1) {
+    const existing = db.directoryProfiles[existingIdx];
+    const tags = getDirectoryProspectTags(existing);
+    if (!tags.includes(prospectTag)) tags.push(prospectTag);
+
+    db.directoryProfiles[existingIdx] = {
+      ...existing,
+      nombre: nombre || existing.nombre,
+      telefono: telefono || existing.telefono,
+      vehiculoInteres: vehSummary || existing.vehiculoInteres || '',
+      notas: prospect.notas
+        ? (existing.notas && !existing.notas.includes(prospect.notas)
+            ? `${existing.notas} | ${prospect.notas}`
+            : prospect.notas)
+        : (existing.notas || ''),
+      origenProspecto: prospectTag,
+      prospectTags: tags,
+      linkedProspectId: prospect.id || existing.linkedProspectId || '',
+      updatedAt: Date.now()
+    };
+  } else {
+    db.directoryProfiles.unshift({
+      id: 'dir-' + Date.now() + '-' + Math.floor(Math.random() * 1000),
+      tipo: 'CLIENTE_FINAL',
+      origenProspecto: prospectTag,
+      prospectTags: [prospectTag],
+      linkedProspectId: prospect.id || '',
+      nombre: nombre || telefono,
+      telefono: telefono,
+      documento: '',
+      correo: '',
+      ciudad: '',
+      vehiculoInteres: vehSummary,
+      contactoPrincipal: '',
+      especialidad: '',
+      historialNegocios: '',
+      direccion: '',
+      calificacion: 0,
+      notas: prospect.notas || '',
+      updatedAt: Date.now()
+    });
+  }
+}
+
 function saveProspect(event) {
   event.preventDefault();
   const id = document.getElementById('prosp-id').value;
   const tipo = document.getElementById('prosp-tipo').value;
   const checkedVehIds = Array.from(document.querySelectorAll('input[name="prosp-veh-check"]:checked')).map((c) => c.value);
+
+  const existingProsp = id ? (db.prospects || []).find((item) => item.id === id) : null;
 
   const payload = {
     id: id || 'prosp-' + Date.now(),
@@ -2939,7 +3080,8 @@ function saveProspect(event) {
     precioPretendido: parseCurrencyInput(document.getElementById('prosp-compra-pretendido').value),
     ofertaNuestra: parseCurrencyInput(document.getElementById('prosp-compra-oferta').value),
     notas: document.getElementById('prosp-notas').value.trim(),
-    fecha: getTodayISO()
+    fecha: existingProsp?.fecha || getTodayISO(),
+    peritaje: existingProsp?.peritaje || null
   };
 
   if (!Array.isArray(db.prospects)) db.prospects = [];
@@ -2949,6 +3091,9 @@ function saveProspect(event) {
   } else {
     db.prospects.unshift(payload);
   }
+
+  // Guardado automático en el Directorio (con etiqueta Compra/Venta y control de duplicados)
+  syncProspectToDirectory(payload);
 
   currentProspectCategory = tipo;
   saveDB();
@@ -3132,22 +3277,17 @@ function renderPartnersSheet() {
       <div class="kpi-card">
         <div class="kpi-label"><span>Capital Total Invertido (Global)</span> <span>🏛️</span></div>
         <div class="kpi-value">${formatCOP(cap.capitalTotalInvertidoGlobal)}</div>
-        <div class="kpi-sub">Carros activos en inventario + gastos activos</div>
-      </div>
-      <div class="kpi-card kpi-purple">
-        <div class="kpi-label"><span>Capital Invertido Propio (Carlos)</span> <span>👑</span></div>
-        <div class="kpi-value" style="color: #38bdf8;">${formatCOP(cap.capitalInvertidoPropioCarlos)}</div>
-        <div class="kpi-sub">Participación propia activa de Carlos</div>
-      </div>
-      <div class="kpi-card kpi-amber">
-        <div class="kpi-label"><span>Capital Invertido por Socios</span> <span>🤝</span></div>
-        <div class="kpi-value" style="color: #fcd34d;">${formatCOP(cap.capitalInvertidoTotalSocios)}</div>
-        <div class="kpi-sub">Total capital activo de todos los socios</div>
+        <div class="kpi-sub">Carlos: ${formatCOP(cap.capitalInvertidoPropioCarlos)} • Socios: ${formatCOP(cap.capitalInvertidoTotalSocios)}</div>
       </div>
       <div class="kpi-card kpi-green">
         <div class="kpi-label"><span>Ganancia Neta Carlos (Vendidos)</span> <span>🏆</span></div>
-        <div class="kpi-value">${formatCOP(totalMiGananciaVendidos)}</div>
-        <div class="kpi-sub">Pagado a socios (vendidos): ${formatCOP(totalPagadoSociosVendidos)}</div>
+        <div class="kpi-value" style="color: #34d399;">${formatCOP(totalMiGananciaVendidos)}</div>
+        <div class="kpi-sub">Utilidad neta acumulada de carros liquidados</div>
+      </div>
+      <div class="kpi-card kpi-amber">
+        <div class="kpi-label"><span>Pagado a Socios (Vendidos)</span> <span>🤝</span></div>
+        <div class="kpi-value" style="color: #fcd34d;">${formatCOP(totalPagadoSociosVendidos)}</div>
+        <div class="kpi-sub">Total utilidades liquidadas a socios</div>
       </div>
     `;
   }

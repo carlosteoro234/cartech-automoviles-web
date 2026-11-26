@@ -98,121 +98,50 @@
            PÁGINA PRINCIPAL: MENÚ DE MÓDULOS (SIN PESTAÑAS)
            ========================================== -->
       <section class="sheet-view active" id="sheet-home">
-        <div class="home-hero">
-          <div>
-            <h2 style="font-size: 24px; font-weight: 800; color: #f8fafc; margin-bottom: 4px;">
-              Panel Principal — Cartech Automóviles
-            </h2>
-            <p style="font-size: 13.5px; color: var(--text-muted);">
-              Selecciona un módulo para gestionar tu inventario, peritajes, clientes, directorio, socios y finanzas en tiempo real.
-            </p>
-          </div>
-          <div style="display: flex; gap: 8px; flex-wrap: wrap;">
-            <button class="btn btn-outline btn-sm" onclick="forceCloudSyncNow()" id="btn-cloud-sync">☁️ Nube Sincronizada</button>
-            <button class="btn btn-success btn-sm" onclick="exportToExcel()">📊 Descargar Excel (.xlsx)</button>
-          </div>
-        </div>
-
         <!-- Resumen Financiero Rápido en la Página Principal -->
         <div class="kpi-grid" id="home-summary-kpis"></div>
 
         <!-- Grid de Tarjetas de Módulos Independientes -->
         <div class="modules-grid">
           <button class="module-card" onclick="openModule('inventario')">
-            <div class="module-card-top">
-              <div class="module-card-icon">🚙</div>
-              <span class="badge condicion-nuevo" id="home-badge-inventario">0 vehículos</span>
-            </div>
-            <h3>Inventario y Capital</h3>
-            <p>Listado maestro de vehículos nuevos y usados, estados rápidos, gastos por carro, capital propio vs. socios y liquidación PDF.</p>
-            <div class="module-card-footer">
-              <span>Abrir módulo</span>
-              <span>→</span>
-            </div>
+            <div class="module-card-icon">🚙</div>
+            <h3>Inventario</h3>
           </button>
 
           <button class="module-card mod-cyan" onclick="openModule('peritaje')">
-            <div class="module-card-top">
-              <div class="module-card-icon">📋</div>
-              <span class="badge status-publicado" id="home-badge-peritaje">0 peritados</span>
-            </div>
+            <div class="module-card-icon">📋</div>
             <h3>Hojas de Peritaje</h3>
-            <p>Inspección compacta por zonas, llantas de 10% en 10%, costos manuales de daños y reporte técnico imprimible en PDF.</p>
-            <div class="module-card-footer">
-              <span>Abrir módulo</span>
-              <span>→</span>
-            </div>
           </button>
 
           <button class="module-card mod-green" onclick="openModule('prospectos')">
-            <div class="module-card-top">
-              <div class="module-card-icon">👥</div>
-              <span class="badge status-vendido" id="home-badge-prospectos">0 prospectos</span>
-            </div>
-            <h3>Prospectos (Venta y Compra)</h3>
-            <p>CRM de clientes compradores, captación de dueños ofreciendo carro, seguimiento comercial y plantillas rápidas de WhatsApp.</p>
-            <div class="module-card-footer">
-              <span>Abrir módulo</span>
-              <span>→</span>
-            </div>
+            <div class="module-card-icon">👥</div>
+            <h3>Prospectos</h3>
           </button>
 
           <button class="module-card mod-purple" onclick="openModule('directorio')">
-            <div class="module-card-top">
-              <div class="module-card-icon">📇</div>
-              <span class="badge status-compra" id="home-badge-directorio">0 perfiles</span>
-            </div>
+            <div class="module-card-icon">📇</div>
             <h3>Directorio y Perfiles</h3>
-            <p>Base de contactos clasificada en Cliente Final, Cliente Comerciante y Proveedores (talleres, latonería, repuestos y trámites).</p>
-            <div class="module-card-footer">
-              <span>Abrir módulo</span>
-              <span>→</span>
-            </div>
           </button>
 
           <button class="module-card mod-amber" onclick="openModule('socios')">
-            <div class="module-card-top">
-              <div class="module-card-icon">🤝</div>
-              <span class="badge status-alistamiento" id="home-badge-socios">0 socios</span>
-            </div>
+            <div class="module-card-icon">🤝</div>
             <h3>Finanzas y Socios</h3>
-            <p>Capital invertido por socio en tiempo real (Inversionistas 50/50 y Socios de Negocio), utilidades y actas PDF de liquidación.</p>
-            <div class="module-card-footer">
-              <span>Abrir módulo</span>
-              <span>→</span>
-            </div>
           </button>
 
           <button class="module-card mod-green" onclick="openModule('gastos-propios')">
-            <div class="module-card-top">
-              <div class="module-card-icon">🏦</div>
-              <span class="badge status-vendido" id="home-badge-gastos">0 gastos</span>
-            </div>
+            <div class="module-card-icon">🏦</div>
             <h3>Liquidez y Gastos Propios</h3>
-            <p>Ubicaciones de dinero libre (bancos y efectivo físico), descuento automático al gastar y filtros por semana, mes o año.</p>
-            <div class="module-card-footer">
-              <span>Abrir módulo</span>
-              <span>→</span>
-            </div>
           </button>
 
           <button class="module-card" onclick="openModule('dispositivos')">
-            <div class="module-card-top">
-              <div class="module-card-icon">⚙️</div>
-              <span class="badge condicion-usado" id="home-badge-usuarios">Usuarios • Nube</span>
-            </div>
-            <h3>Configuración y Usuarios</h3>
-            <p>Agregar usuarios autorizados, cambiar contraseñas, datos de la empresa para PDFs, sincronización en la nube y exportación a Excel.</p>
-            <div class="module-card-footer">
-              <span>Abrir módulo</span>
-              <span>→</span>
-            </div>
+            <div class="module-card-icon">⚙️</div>
+            <h3>Configuración</h3>
           </button>
         </div>
       </section>
 
       <!-- ==========================================
-           MÓDULO 1: INVENTARIO DE VEHÍCULOS Y CAPITAL INVERTIDO
+           MÓDULO 1: INVENTARIO DE VEHÍCULOS
            ========================================== -->
       <section class="sheet-view" id="sheet-inventario">
         <div class="module-back-bar">
@@ -220,26 +149,17 @@
         </div>
         <div class="top-bar">
           <div class="page-title">
-            <h2>Inventario Maestro y Capital en Tiempo Real</h2>
-            <p>Separación estricta de Capital Propio (Carlos) vs. Capital de Socios, peritaje y plantillas WhatsApp.</p>
+            <h2>Inventario Maestro de Vehículos</h2>
+            <p>Gestión de vehículos nuevos y usados, estados, gastos por carro, peritaje de solo lectura y plantillas WhatsApp.</p>
           </div>
           <div class="top-actions">
-            <button class="btn btn-outline" onclick="openMoneyLocationModal()">🏦 + Ubicación Dinero Libre</button>
+            <button class="btn btn-success" onclick="exportToExcel()">📊 Descargar Inventario (Excel)</button>
             <button class="btn btn-primary" onclick="openVehicleModal()">➕ Nuevo Vehículo</button>
           </div>
         </div>
 
-        <!-- KPIs Globales de Capital (Total, Propio Carlos, Socios, Liquidez Disponible) -->
+        <!-- KPIs de Vehículos en Inventario -->
         <div class="kpi-grid" id="inventario-kpis"></div>
-
-        <!-- Desglose Individualizado de Capital Invertido (Carlos vs Cada Socio) -->
-        <div class="card-panel" style="margin-bottom: 20px;">
-          <div class="card-header">
-            <h3>💼 Desglose de Capital Invertido en Tiempo Real (Propio Carlos vs. Cada Socio)</h3>
-            <button class="btn btn-outline btn-sm" onclick="switchSheet('socios')">Ver Detalle de Socios →</button>
-          </div>
-          <div class="capital-breakdown-grid" id="inventory-capital-breakdown"></div>
-        </div>
 
         <!-- PESTAÑAS RÁPIDAS POR ESTADO (Evita saturación visual) -->
         <div class="status-tabs-bar" id="inventory-status-tabs"></div>
@@ -484,6 +404,8 @@
             <label>Filtrar por Tipo de Perfil</label>
             <select id="filter-dir-tipo" onchange="setDirectoryProfileTab(this.value)">
               <option value="TODOS">📋 Todos los perfiles</option>
+              <option value="CLIENTE_VENTA">🏷️ Cliente de Venta (Prospectos)</option>
+              <option value="CLIENTE_COMPRA">🚗 Cliente de Compra (Prospectos)</option>
               <option value="CLIENTE_FINAL">👤 Cliente Final</option>
               <option value="COMERCIANTE">🏢 Cliente Comerciante</option>
               <option value="PROVEEDOR">🔧 Proveedor (Talleres / Repuestos / Trámites)</option>
@@ -524,11 +446,10 @@
         </div>
         <div class="top-bar">
           <div class="page-title">
-            <h2>Socios, Capital Invertido Individualizado y División de Ganancias</h2>
-            <p>Monitorea cuánto capital tiene invertido Carlos (Propio) y cada socio (Taty, Henry, Daniel, William, Jimmy, etc.) en tiempo real.</p>
+            <h2>Finanzas, Socios y Capital Invertido</h2>
+            <p>Control centralizado del capital invertido en tiempo real (Propio Carlos vs. Cada Socio) y división de ganancias.</p>
           </div>
           <div class="top-actions">
-            <button class="btn btn-outline" onclick="exportToExcel()">📊 Exportar Excel</button>
             <button class="btn btn-primary" onclick="openPartnerModal()">➕ Agregar Socio</button>
           </div>
         </div>
@@ -538,7 +459,7 @@
         <!-- Desglose Individualizado en Hoja de Socios -->
         <div class="card-panel">
           <div class="card-header">
-            <h3>💰 Capital Invertido Activo porPersona (Propio Carlos vs. Socios en Tiempo Real)</h3>
+            <h3>💼 Desglose de Capital Invertido en Tiempo Real (Propio Carlos vs. Cada Socio)</h3>
           </div>
           <div class="capital-breakdown-grid" id="socios-capital-breakdown"></div>
         </div>
@@ -717,7 +638,7 @@
             <p>Gestiona usuarios autorizados, contraseñas de acceso, datos de empresa para PDFs, nube y copias de seguridad.</p>
           </div>
           <div class="top-actions">
-            <button class="btn btn-success" onclick="exportToExcel()">📊 Exportar Excel (.xlsx)</button>
+            <button class="btn btn-outline" onclick="forceCloudSyncNow()">🔄 Sincronizar Nube Ahora</button>
           </div>
         </div>
 

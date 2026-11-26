@@ -453,7 +453,7 @@ body {
 
 .modules-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(290px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
   gap: 16px;
   margin-bottom: 24px;
 }
@@ -461,16 +461,19 @@ body {
 .module-card {
   background: var(--bg-card);
   border: 1px solid var(--border-color);
-  border-radius: 14px;
-  padding: 20px;
+  border-radius: 16px;
+  padding: 26px 18px 22px;
   cursor: pointer;
   transition: transform 0.16s ease, border-color 0.16s ease, box-shadow 0.16s ease;
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
   position: relative;
   overflow: hidden;
-  text-align: left;
+  text-align: center;
+  min-height: 170px;
 }
 
 .module-card::before {
@@ -479,7 +482,7 @@ body {
   top: 0;
   left: 0;
   right: 0;
-  height: 3px;
+  height: 4px;
   background: var(--cartech-blue-bright);
 }
 
@@ -489,52 +492,42 @@ body {
 .module-card.mod-cyan::before { background: var(--cyan); }
 
 .module-card:hover {
-  transform: translateY(-3px);
+  transform: translateY(-4px);
   border-color: #3b82f6;
-  box-shadow: 0 12px 28px rgba(0, 56, 147, 0.28);
-}
-
-.module-card-top {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
+  box-shadow: 0 14px 30px rgba(0, 56, 147, 0.34);
 }
 
 .module-card-icon {
-  width: 46px;
-  height: 46px;
-  border-radius: 12px;
-  background: rgba(0, 70, 184, 0.2);
-  border: 1px solid rgba(59, 130, 246, 0.35);
+  width: 78px;
+  height: 78px;
+  border-radius: 20px;
+  background: rgba(0, 70, 184, 0.22);
+  border: 1px solid rgba(59, 130, 246, 0.4);
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 22px;
+  font-size: 40px;
+  line-height: 1;
+  box-shadow: 0 6px 18px rgba(0, 56, 147, 0.22);
 }
 
 .module-card h3 {
-  font-size: 16.5px;
+  font-size: 16px;
   font-weight: 700;
   color: #f8fafc;
+  letter-spacing: -0.2px;
 }
 
-.module-card p {
-  font-size: 13px;
-  color: var(--text-muted);
-  line-height: 1.45;
-  flex: 1;
+.profile-badge-venta {
+  background: rgba(59, 130, 246, 0.18);
+  color: #93c5fd;
+  border: 1px solid rgba(59, 130, 246, 0.45);
 }
 
-.module-card-footer {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding-top: 10px;
-  border-top: 1px solid rgba(37, 51, 77, 0.7);
-  font-size: 12.5px;
-  font-weight: 700;
-  color: #60a5fa;
+.profile-badge-compra {
+  background: rgba(16, 185, 129, 0.18);
+  color: #6ee7b7;
+  border: 1px solid rgba(16, 185, 129, 0.45);
 }
 
 /* Botón Volver al Inicio dentro de cada módulo */
@@ -1435,7 +1428,24 @@ tr:hover td {
 }
 
 @media (max-width: 600px) {
-  .modules-grid,
+  .modules-grid {
+    grid-template-columns: repeat(2, 1fr) !important;
+    gap: 12px;
+  }
+  .module-card {
+    padding: 20px 10px 16px;
+    min-height: 145px;
+    gap: 10px;
+  }
+  .module-card-icon {
+    width: 64px;
+    height: 64px;
+    font-size: 34px;
+    border-radius: 16px;
+  }
+  .module-card h3 {
+    font-size: 14px;
+  }
   .kpi-grid,
   .capital-breakdown-grid,
   .money-locations-grid,
