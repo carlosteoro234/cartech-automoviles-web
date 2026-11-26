@@ -463,7 +463,7 @@
 
         <div class="card-panel">
           <div class="card-header">
-            <h3>📇 Base de Datos de Socios Registrados</h3>
+            <h3>📇 Base de Datos de Socios, Capital Base y Ganancias por Pagar</h3>
             <button class="btn btn-primary btn-sm" onclick="openPartnerModal()">+ Nuevo Socio</button>
           </div>
           <div class="table-responsive">
@@ -471,13 +471,11 @@
               <thead>
                 <tr>
                   <th>Nombre del Socio</th>
-                  <th>Tipo de Socio</th>
-                  <th>Esquema de Ganancia</th>
-                  <th>Teléfono / Documento</th>
-                  <th>Carros Activos</th>
-                  <th>Capital Invertido Activo ($)</th>
-                  <th>Carros Vendidos</th>
-                  <th>Ganancia Acumulada (Vendidos)</th>
+                  <th>Tipo</th>
+                  <th>Capital Base Total ($)</th>
+                  <th>Invertido Activo ($)</th>
+                  <th>Capital Disponible ($)</th>
+                  <th>Ganancias por Pagar ($)</th>
                   <th>Acciones</th>
                 </tr>
               </thead>
@@ -900,21 +898,22 @@
         </div>
 
         <div class="section-divider">
-          <h4>🤝 Participación de Socios y Aporte de Capital</h4>
+          <h4>🤝 Participación de Socios y Fuentes de Capital para la Compra</h4>
           <div class="form-grid">
             <div class="form-group">
               <label>Modalidad de Sociedad en este Carro</label>
               <select id="veh-modalidad-socio" onchange="handlePartnerModeChange()">
                 <option value="PROPIO">100% Propio Carlos (Sin socios externos)</option>
-                <option value="INVERSIONISTA">Con Socio Inversionista (Ganancia 50% / 50%)</option>
+                <option value="INVERSIONISTA">Con Socio Inversionista (100% Socio o Compartido)</option>
+                <option value="MIXTO_INVERSIONISTAS">Financiación Compartida (Varios Inversionistas / Mixta)</option>
                 <option value="NEGOCIO">Con Socios del Mismo Negocio (Dividido entre 2, 3 o más)</option>
                 <option value="COMBINADO">Inversionista (50%) + Socios de Negocio (50% restante)</option>
               </select>
             </div>
 
             <div class="form-group" id="group-select-inversionista" style="display: none;">
-              <label>Seleccionar Socio Inversionista (50/50)</label>
-              <select id="veh-socio-inversionista" onchange="updateVehiclePartnerPreview()"></select>
+              <label>Socio Inversionista Principal</label>
+              <select id="veh-socio-inversionista" onchange="syncPrimaryInvestorRow(); updateVehiclePartnerPreview()"></select>
             </div>
 
             <div class="form-group" id="group-cantidad-negocio" style="display: none;">
@@ -932,24 +931,38 @@
             <div id="veh-socios-negocio-list" style="display: flex; flex-wrap: wrap; gap: 10px; padding: 8px 0;"></div>
           </div>
 
-          <!-- Separación exacta del Capital Aportado para Compra -->
-          <div class="form-grid" style="margin-top: 10px; background: rgba(15, 23, 42, 0.55); padding: 12px; border-radius: var(--radius-sm); border: 1px solid var(--border-color);">
-            <div class="form-group">
-              <label>Capital de Compra Aportado por Carlos ($)</label>
-              <input type="text" inputmode="numeric" id="veh-capital-carlos" placeholder="Ej: 39.000.000" oninput="formatCurrencyInput(this); onManualCarlosCapitalInput()" />
-              <span class="input-hint">Cuánto pusiste tú de la compra del carro</span>
+          <!-- Fuentes de Capital para la Compra (Carlos + 1 o varios Socios) -->
+          <div style="margin-top: 10px; background: rgba(15, 23, 42, 0.55); padding: 12px; border-radius: var(--radius-sm); border: 1px solid var(--border-color); display: flex; flex-direction: column; gap: 10px;">
+            <div class="form-grid">
+              <div class="form-group">
+                <label>👑 Capital de Compra Aportado por Carlos ($)</label>
+                <input type="text" inputmode="numeric" id="veh-capital-carlos" placeholder="Ej: 0 o 10.000.000" oninput="formatCurrencyInput(this); onManualCarlosCapitalInput()" />
+                <span class="input-hint">Puede ser $0 si el carro es 100% financiado por socio(s)</span>
+              </div>
+              <div class="form-group">
+                <label>🤝 Total Aportado por Socio(s) en Compra ($)</label>
+                <input type="text" inputmode="numeric" id="veh-capital-socios" placeholder="0" readonly style="opacity: 0.85;" />
+                <span class="input-hint" id="veh-funding-balance-hint">Suma de aportes de socios asignados</span>
+              </div>
+              <div class="form-group" id="group-veh-money-location">
+                <label>¿Descontar Capital de Carlos de Dinero Libre?</label>
+                <select id="veh-money-location-id">
+                  <option value="">-- No descontar / Ya descontado antes --</option>
+                </select>
+                <span class="input-hint">Opcional: solo aplica si Carlos aportó más de $0</span>
+              </div>
             </div>
-            <div class="form-group">
-              <label>Capital de Compra Aportado por Socio(s) ($)</label>
-              <input type="text" inputmode="numeric" id="veh-capital-socios" placeholder="Ej: 39.000.000" readonly style="opacity: 0.85;" />
-              <span class="input-hint">Se calcula automáticamente (Compra - Capital Carlos)</span>
-            </div>
-            <div class="form-group" id="group-veh-money-location">
-              <label>¿Descontar Capital de Carlos de Dinero Libre?</label>
-              <select id="veh-money-location-id">
-                <option value="">-- No descontar / Ya descontado antes --</option>
-              </select>
-              <span class="input-hint">Opcional: resta tu aporte del saldo de esa cuenta/efectivo</span>
+
+            <!-- Lista dinámica de Socios Aportantes (Financiación 100% socio o compartida) -->
+            <div id="veh-partner-funding-container" style="display: none; border-top: 1px solid var(--border-color); padding-top: 10px;">
+              <div style="display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 8px;">
+                <span style="font-size: 12.5px; font-weight: 700; color: #fcd34d;">💼 Desglose de Aportes por Socio (se descuenta de su Capital Disponible)</span>
+                <div style="display: flex; gap: 6px;">
+                  <button type="button" class="btn btn-outline btn-sm" onclick="autoCompleteRemainingFunding()">⚖️ Completar restante</button>
+                  <button type="button" class="btn btn-primary btn-sm" onclick="addVehicleFundingRow()">➕ Agregar Socio</button>
+                </div>
+              </div>
+              <div id="veh-partner-funding-rows" style="display: flex; flex-direction: column; gap: 8px;"></div>
             </div>
           </div>
 
@@ -1194,40 +1207,41 @@
         <div class="kpi-grid" id="veh-exp-summary-kpis" style="margin-bottom: 8px;"></div>
 
         <form id="form-veh-expense" onsubmit="addVehicleExpense(event)" style="background: rgba(15, 23, 42, 0.65); padding: 14px; border-radius: var(--radius-sm); border: 1px solid var(--border-color);">
-          <h4 style="font-size: 13.5px; color: #60a5fa; margin-bottom: 10px;">➕ Agregar Gasto a este Vehículo (Descuenta de Ubicación de Dinero Libre)</h4>
+          <h4 style="font-size: 13.5px; color: #60a5fa; margin-bottom: 10px;">➕ Agregar Gasto a este Vehículo (Alistamiento, Traspaso o Comisión)</h4>
           <div class="form-grid">
             <div class="form-group">
               <label>Tipo de Gasto *</label>
               <select id="vexp-tipo" required>
-                <option value="Alistamiento">🔧 Alistamiento (Mecánica, Latonería, Papeles)</option>
+                <option value="Alistamiento">🔧 Alistamiento / Mantenimiento / Traspaso</option>
                 <option value="Comisión">🤝 Comisión (Compra, Venta, Referido)</option>
               </select>
             </div>
             <div class="form-group">
               <label>Concepto / Detalle *</label>
-              <input type="text" id="vexp-concepto" placeholder="Ej: Cambio de aceite, Pintura bomper..." required />
+              <input type="text" id="vexp-concepto" placeholder="Ej: Cambio de aceite, Pintura bomper, Traspaso..." required />
             </div>
             <div class="form-group">
               <label>Valor ($ - Solo Números) *</label>
-              <input type="text" inputmode="numeric" id="vexp-valor" placeholder="Ej: 350.000" required oninput="formatCurrencyInput(this)" />
+              <input type="text" inputmode="numeric" id="vexp-valor" placeholder="Ej: 1.500.000" required oninput="formatCurrencyInput(this)" />
             </div>
           </div>
           <div class="form-grid" style="margin-top: 10px;">
             <div class="form-group">
-              <label>¿De qué Ubicación de Dinero Libre salió? *</label>
-              <select id="vexp-money-location" required></select>
+              <label>¿De dónde sale este dinero? *</label>
+              <select id="vexp-pagado-por" required onchange="onVehicleExpenseSourceChange()"></select>
             </div>
-            <div class="form-group">
-              <label>¿Quién aportó el capital de este gasto?</label>
-              <select id="vexp-pagado-por"></select>
+            <div class="form-group" id="group-vexp-money-location">
+              <label>Cuenta o Efectivo de Carlos *</label>
+              <select id="vexp-money-location" required></select>
             </div>
             <div class="form-group">
               <label>Fecha</label>
               <input type="date" id="vexp-fecha" required />
             </div>
           </div>
+          <div id="vexp-source-hint" style="font-size: 11.5px; color: #93c5fd; margin-top: 6px;"></div>
           <div style="display: flex; justify-content: flex-end; margin-top: 12px;">
-            <button type="submit" class="btn btn-primary btn-sm">➕ Añadir Gasto y Descontar Saldo</button>
+            <button type="submit" class="btn btn-primary btn-sm">➕ Añadir Gasto</button>
           </div>
         </form>
 
@@ -1274,10 +1288,15 @@
         </div>
         <div class="form-group">
           <label>Tipo de Socio *</label>
-          <select id="part-tipo" required>
-            <option value="Inversionista">💼 Socio Inversionista (Porcentaje fijo 50 / 50)</option>
+          <select id="part-tipo" required onchange="onPartnerModalTypeChange()">
+            <option value="Inversionista">💼 Socio Inversionista (Con Capital Base Global)</option>
             <option value="Negocio">🤝 Socio de Negocio (Mismo negocio: divide entre 2, 3 o según cantidad)</option>
           </select>
+        </div>
+        <div class="form-group" id="group-part-capital-base">
+          <label>Capital Base Total del Socio Inversionista ($) *</label>
+          <input type="text" inputmode="numeric" id="part-capital-base" placeholder="Ej: 40.000.000" oninput="formatCurrencyInput(this)" />
+          <span class="input-hint">Fondo global del socio. Permanece intacto salvo aumentos o retiros manuales.</span>
         </div>
         <div class="form-grid">
           <div class="form-group">
@@ -1298,6 +1317,125 @@
           <button type="submit" class="btn btn-primary">💾 Guardar Socio</button>
         </div>
       </form>
+    </div>
+  </div>
+
+  <!-- =========================================================
+       MODAL 9: AUMENTOS O RETIROS DE CAPITAL BASE (SOCIO INVERSIONISTA)
+       ========================================================= -->
+  <div class="modal-backdrop" id="modal-partner-capital-mov">
+    <div class="modal-content" style="max-width: 600px;">
+      <div class="modal-header">
+        <div>
+          <h3 id="modal-pcap-title">💰 Aumentos / Retiros de Capital Base</h3>
+          <span id="modal-pcap-subtitle" style="font-size: 12.5px; color: var(--text-muted);"></span>
+        </div>
+        <button class="btn btn-outline btn-sm" onclick="closeModal('modal-partner-capital-mov')">✕</button>
+      </div>
+      <div class="modal-body">
+        <input type="hidden" id="pcap-partner-id" />
+        <div class="kpi-grid" id="pcap-summary-kpis" style="margin-bottom: 10px;"></div>
+
+        <form id="form-partner-capital-mov" onsubmit="savePartnerCapitalMovement(event)" style="background: rgba(15, 23, 42, 0.65); padding: 14px; border-radius: var(--radius-sm); border: 1px solid var(--border-color); display: flex; flex-direction: column; gap: 10px;">
+          <div class="form-grid">
+            <div class="form-group">
+              <label>Tipo de Movimiento *</label>
+              <select id="pcap-tipo" required>
+                <option value="AUMENTO">➕ Aumento de Capital Base (Nuevo aporte)</option>
+                <option value="RETIRO">➖ Retiro de Capital Base (Devolución al socio)</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label>Monto ($ - Solo Números) *</label>
+              <input type="text" inputmode="numeric" id="pcap-monto" placeholder="Ej: 10.000.000" required oninput="formatCurrencyInput(this)" />
+            </div>
+            <div class="form-group">
+              <label>Fecha *</label>
+              <input type="date" id="pcap-fecha" required />
+            </div>
+          </div>
+          <div class="form-group">
+            <label>Nota / Observación</label>
+            <input type="text" id="pcap-nota" placeholder="Ej: Transferencia Bancolombia, retiro parcial de capital..." />
+          </div>
+          <div style="display: flex; justify-content: flex-end;">
+            <button type="submit" class="btn btn-primary btn-sm">💾 Registrar Movimiento en Base</button>
+          </div>
+        </form>
+
+        <div class="table-responsive" style="margin-top: 10px;">
+          <table>
+            <thead>
+              <tr>
+                <th>Fecha</th>
+                <th>Movimiento</th>
+                <th>Monto ($)</th>
+                <th>Nota</th>
+              </tr>
+            </thead>
+            <tbody id="pcap-history-tbody"></tbody>
+          </table>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-outline" onclick="closeModal('modal-partner-capital-mov')">Cerrar</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- =========================================================
+       MODAL 10: LIQUIDAR GANANCIAS POR PAGAR A SOCIO (SIN TOCAR BASE)
+       ========================================================= -->
+  <div class="modal-backdrop" id="modal-partner-profit-pay">
+    <div class="modal-content" style="max-width: 600px;">
+      <div class="modal-header">
+        <div>
+          <h3 id="modal-ppay-title">💸 Liquidar Ganancias por Pagar</h3>
+          <span id="modal-ppay-subtitle" style="font-size: 12.5px; color: var(--text-muted);"></span>
+        </div>
+        <button class="btn btn-outline btn-sm" onclick="closeModal('modal-partner-profit-pay')">✕</button>
+      </div>
+      <div class="modal-body">
+        <input type="hidden" id="ppay-partner-id" />
+        <div class="kpi-grid" id="ppay-summary-kpis" style="margin-bottom: 10px;"></div>
+
+        <form id="form-partner-profit-pay" onsubmit="savePartnerProfitPayment(event)" style="background: rgba(15, 23, 42, 0.65); padding: 14px; border-radius: var(--radius-sm); border: 1px solid var(--border-color); display: flex; flex-direction: column; gap: 10px;">
+          <div class="form-grid">
+            <div class="form-group">
+              <label>Monto de Ganancia a Pagar ($) *</label>
+              <input type="text" inputmode="numeric" id="ppay-monto" placeholder="Ej: 1.750.000" required oninput="formatCurrencyInput(this)" />
+              <span class="input-hint">Esto NO toca el Capital Base del socio; solo liquida sus ganancias pendientes.</span>
+            </div>
+            <div class="form-group">
+              <label>Fecha de Pago *</label>
+              <input type="date" id="ppay-fecha" required />
+            </div>
+          </div>
+          <div class="form-group">
+            <label>Nota / Comprobante</label>
+            <input type="text" id="ppay-nota" placeholder="Ej: Transferencia utilidades venta Mazda 2..." />
+          </div>
+          <div style="display: flex; justify-content: flex-end;">
+            <button type="submit" class="btn btn-success btn-sm">✅ Marcar Ganancia como Pagada</button>
+          </div>
+        </form>
+
+        <div class="table-responsive" style="margin-top: 10px;">
+          <table>
+            <thead>
+              <tr>
+                <th>Fecha</th>
+                <th>Ganancia Pagada ($)</th>
+                <th>Nota</th>
+              </tr>
+            </thead>
+            <tbody id="ppay-history-tbody"></tbody>
+          </table>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-outline" onclick="closeModal('modal-partner-profit-pay')">Cerrar</button>
+      </div>
     </div>
   </div>
 

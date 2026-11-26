@@ -513,21 +513,37 @@ function calculateVehicleFinancials(veh) {
     .map((id) => db.partners.find((p) => p.id === id))
     .filter(Boolean);
 
+  const hasCustomAportes =
+    Array.isArray(veh.aportesCompra) &&
+    veh.aportesCompra.length > 0 &&
+    modalidad !== 'PROPIO';
+
   // 1. Cálculo de Capital Aportado en la COMPRA del vehículo (Carlos vs Cada Socio)
   let capitalCompraCarlos = precioCompra;
-  const capitalPorSocioMap = {}; // partnerId -> monto capital aportado en este vehículo
+  const capitalCompraPorSocioMap = {}; // partnerId -> monto aportado en compra
+  const capitalPorSocioMap = {};       // partnerId -> compra + gastos de su base
 
-  if (modalidad === 'PROPIO') {
+  if (hasCustomAportes) {
+    capitalCompraCarlos = typeof veh.capitalCompraCarlos === 'number' && !Number.isNaN(veh.capitalCompraCarlos)
+      ? Math.max(0, veh.capitalCompraCarlos)
+      : 0;
+    veh.aportesCompra.forEach((ap) => {
+      if (!ap || !ap.partnerId) return;
+      const monto = Math.max(0, Number(ap.monto) || 0);
+      capitalCompraPorSocioMap[ap.partnerId] = (capitalCompraPorSocioMap[ap.partnerId] || 0) + monto;
+      capitalPorSocioMap[ap.partnerId] = (capitalPorSocioMap[ap.partnerId] || 0) + monto;
+    });
+  } else if (modalidad === 'PROPIO') {
     capitalCompraCarlos = precioCompra;
   } else if (modalidad === 'INVERSIONISTA') {
     if (typeof veh.capitalCompraCarlos === 'number' && !Number.isNaN(veh.capitalCompraCarlos)) {
       capitalCompraCarlos = Math.min(precioCompra, Math.max(0, veh.capitalCompraCarlos));
     } else {
-      // Por defecto en Inversionista 50/50 o según aporte
-      capitalCompraCarlos = Math.round(precioCompra * 0.5);
+      capitalCompraCarlos = 0;
     }
     const capInv = Math.max(0, precioCompra - capitalCompraCarlos);
     if (veh.socioInversionistaId) {
+      capitalCompraPorSocioMap[veh.socioInversionistaId] = (capitalCompraPorSocioMap[veh.socioInversionistaId] || 0) + capInv;
       capitalPorSocioMap[veh.socioInversionistaId] = (capitalPorSocioMap[veh.socioInversionistaId] || 0) + capInv;
     }
   } else if (modalidad === 'NEGOCIO') {
@@ -540,11 +556,13 @@ function calculateVehicleFinancials(veh) {
     const numOtrosSocios = negPartners.length > 0 ? negPartners.length : (numNegocio - 1);
     const capCadaSocio = numOtrosSocios > 0 ? capRestanteNegocio / numOtrosSocios : 0;
     negPartners.forEach((p) => {
+      capitalCompraPorSocioMap[p.id] = (capitalCompraPorSocioMap[p.id] || 0) + capCadaSocio;
       capitalPorSocioMap[p.id] = (capitalPorSocioMap[p.id] || 0) + capCadaSocio;
     });
   } else if (modalidad === 'COMBINADO') {
     const capInv = Math.round(precioCompra * 0.5);
     if (veh.socioInversionistaId) {
+      capitalCompraPorSocioMap[veh.socioInversionistaId] = (capitalCompraPorSocioMap[veh.socioInversionistaId] || 0) + capInv;
       capitalPorSocioMap[veh.socioInversionistaId] = (capitalPorSocioMap[veh.socioInversionistaId] || 0) + capInv;
     }
     const mitadNegocio = precioCompra - capInv;
@@ -557,6 +575,7 @@ function calculateVehicleFinancials(veh) {
     const numOtros = negPartners.length > 0 ? negPartners.length : (numNegocio - 1);
     const capCadaSocio = numOtros > 0 ? capRestanteNeg / numOtros : 0;
     negPartners.forEach((p) => {
+      capitalCompraPorSocioMap[p.id] = (capitalCompraPorSocioMap[p.id] || 0) + capCadaSocio;
       capitalPorSocioMap[p.id] = (capitalPorSocioMap[p.id] || 0) + capCadaSocio;
     });
   }
@@ -568,9 +587,7 @@ function calculateVehicleFinancials(veh) {
   gastos.forEach((g) => {
     const val = Number(g.valor) || 0;
     const pagadoPor = g.pagadoPor || 'CARLOS';
-    if (pagadoPor === 'CARLOS') {
-      gastosPagadosPorCarlos += val;
-    } else if (pagadoPor && pagadoPor.startsWith('soc-')) {
+    if (pagadoPor && pagadoPor.startsWith('soc-')) {
       gastosPagadosPorSocios += val;
       capitalPorSocioMap[pagadoPor] = (capitalPorSocioMap[pagadoPor] || 0) + val;
     } else {
@@ -579,9 +596,14 @@ function calculateVehicleFinancials(veh) {
   });
 
   const capitalTotalCarlosEnVehiculo = capitalCompraCarlos + gastosPagadosPorCarlos;
-  const capitalTotalSociosEnVehiculo = Math.max(0, costoTotal - capitalTotalCarlosEnVehiculo);
+  const sumMapSocios = Object.values(capitalPorSocioMap).reduce((a, b) => a + b, 0);
+  const capitalTotalSociosEnVehiculo = sumMapSocios > 0
+    ? sumMapSocios
+    : Math.max(0, costoTotal - capitalTotalCarlosEnVehiculo);
 
-  // 3. Cálculo de División de Ganancia Neta
+  // 3. Cálculo de División de Ganancia Neta (Exacta por socio, sin tocar Capital Base)
+  const gananciaPorSocioMap = {};
+  const pctPorSocioMap = {};
   let pagoInversionista = 0;
   let pctInversionista = 0;
   let pagoSociosNegocioTotal = 0;
@@ -591,11 +613,35 @@ function calculateVehicleFinancials(veh) {
   let miPorcentaje = 100;
   let resumenSociedad = '100% Propio Carlos';
 
-  if (modalidad === 'INVERSIONISTA') {
+  if (hasCustomAportes) {
+    const labels = [];
+    let totalPctSocios = 0;
+    veh.aportesCompra.forEach((ap) => {
+      if (!ap || !ap.partnerId) return;
+      const pct = Math.max(0, Number(ap.pctGanancia) || 0);
+      totalPctSocios += pct;
+      pctPorSocioMap[ap.partnerId] = (pctPorSocioMap[ap.partnerId] || 0) + pct;
+      gananciaPorSocioMap[ap.partnerId] = (gananciaPorSocioMap[ap.partnerId] || 0) + (gananciaNeta * (pct / 100));
+      const pObj = db.partners.find((p) => p.id === ap.partnerId);
+      labels.push(`${pObj ? pObj.nombre.split(' ')[0] : 'Socio'} ${pct}%`);
+    });
+    const totalPagos = Object.values(gananciaPorSocioMap).reduce((a, b) => a + b, 0);
+    pagoInversionista = totalPagos;
+    pctInversionista = totalPctSocios;
+    miPorcentaje = Math.max(0, 100 - totalPctSocios);
+    miGananciaNeta = gananciaNeta - totalPagos;
+    resumenSociedad = labels.length > 0
+      ? `${labels.join(' + ')} • Carlos ${miPorcentaje.toFixed(miPorcentaje % 1 === 0 ? 0 : 1)}%`
+      : 'Financiación Compartida';
+  } else if (modalidad === 'INVERSIONISTA') {
     pctInversionista = 50;
     miPorcentaje = 50;
     pagoInversionista = gananciaNeta * 0.5;
     miGananciaNeta = gananciaNeta * 0.5;
+    if (veh.socioInversionistaId) {
+      pctPorSocioMap[veh.socioInversionistaId] = 50;
+      gananciaPorSocioMap[veh.socioInversionistaId] = pagoInversionista;
+    }
     resumenSociedad = `Inversionista 50/50 (${invPartner ? invPartner.nombre : 'Sin asignar'})`;
   } else if (modalidad === 'NEGOCIO') {
     pctPorCadaSocioNegocio = 100 / numNegocio;
@@ -603,21 +649,35 @@ function calculateVehicleFinancials(veh) {
     pagoPorCadaSocioNegocio = gananciaNeta / numNegocio;
     pagoSociosNegocioTotal = pagoPorCadaSocioNegocio * (numNegocio - 1);
     miGananciaNeta = pagoPorCadaSocioNegocio;
+    negPartners.forEach((p) => {
+      pctPorSocioMap[p.id] = (pctPorSocioMap[p.id] || 0) + pctPorCadaSocioNegocio;
+      gananciaPorSocioMap[p.id] = (gananciaPorSocioMap[p.id] || 0) + pagoPorCadaSocioNegocio;
+    });
     const nombres = negPartners.map((p) => p.nombre.split(' ')[0]).join(', ');
     resumenSociedad = `Negocio entre ${numNegocio} (${pctPorCadaSocioNegocio.toFixed(1)}% c/u${nombres ? ': ' + nombres : ''})`;
   } else if (modalidad === 'COMBINADO') {
     pctInversionista = 50;
     pagoInversionista = gananciaNeta * 0.5;
+    if (veh.socioInversionistaId) {
+      pctPorSocioMap[veh.socioInversionistaId] = (pctPorSocioMap[veh.socioInversionistaId] || 0) + 50;
+      gananciaPorSocioMap[veh.socioInversionistaId] = (gananciaPorSocioMap[veh.socioInversionistaId] || 0) + pagoInversionista;
+    }
     const mitadNegocio = gananciaNeta * 0.5;
     pctPorCadaSocioNegocio = 50 / numNegocio;
     miPorcentaje = pctPorCadaSocioNegocio;
     pagoPorCadaSocioNegocio = mitadNegocio / numNegocio;
     pagoSociosNegocioTotal = pagoPorCadaSocioNegocio * (numNegocio - 1);
     miGananciaNeta = pagoPorCadaSocioNegocio;
+    negPartners.forEach((p) => {
+      pctPorSocioMap[p.id] = (pctPorSocioMap[p.id] || 0) + pctPorCadaSocioNegocio;
+      gananciaPorSocioMap[p.id] = (gananciaPorSocioMap[p.id] || 0) + pagoPorCadaSocioNegocio;
+    });
     resumenSociedad = `Inv. 50% + Negocio entre ${numNegocio} (${pctPorCadaSocioNegocio.toFixed(1)}% c/u)`;
   }
 
-  const totalPagosSocios = pagoInversionista + pagoSociosNegocioTotal;
+  const totalPagosSocios = hasCustomAportes
+    ? Object.values(gananciaPorSocioMap).reduce((a, b) => a + b, 0)
+    : (pagoInversionista + pagoSociosNegocioTotal);
 
   return {
     precioCompra,
@@ -625,9 +685,14 @@ function calculateVehicleFinancials(veh) {
     totalComisiones,
     costoTotal,
     capitalCompraCarlos,
+    gastosPagadosPorCarlos,
+    gastosPagadosPorSocios,
     capitalTotalCarlosEnVehiculo,
     capitalTotalSociosEnVehiculo,
+    capitalCompraPorSocioMap,
     capitalPorSocioMap,
+    gananciaPorSocioMap,
+    pctPorSocioMap,
     precioReferenciaVenta,
     gananciaNeta,
     margenPct,
@@ -648,7 +713,7 @@ function calculateVehicleFinancials(veh) {
   };
 }
 
-// Calcula el resumen global de Capital Total Invertido, Capital Propio (Carlos) y Capital por cada Socio
+// Calcula el resumen global de Capital Base, Invertido Activo, Disponible y Ganancias por Pagar por Socio
 function calculateGlobalCapitalBreakdown() {
   let capitalTotalInvertidoGlobal = 0;
   let capitalInvertidoPropioCarlos = 0;
@@ -657,12 +722,20 @@ function calculateGlobalCapitalBreakdown() {
 
   const socioStats = {};
   db.partners.forEach((p) => {
+    const capitalBase = p.tipo === 'Inversionista' ? (Number(p.capitalBase) || 0) : 0;
+    const gananciasPagadas = Array.isArray(p.profitPayments)
+      ? p.profitPayments.reduce((acc, item) => acc + (Number(item.monto) || 0), 0)
+      : 0;
     socioStats[p.id] = {
       partner: p,
+      capitalBase,
       capitalActivo: 0,
+      capitalDisponible: capitalBase,
       carrosActivos: 0,
       carrosVendidos: 0,
-      gananciaAcumuladaVendidos: 0
+      gananciaAcumuladaVendidos: 0,
+      gananciasPagadas,
+      gananciasPorPagar: 0
     };
   });
 
@@ -683,32 +756,32 @@ function calculateGlobalCapitalBreakdown() {
       });
     }
 
-    // Contabilizar participación en carros activos y vendidos por socio
+    // Contabilizar participación en carros activos y ganancias en vendidos por socio
     db.partners.forEach((p) => {
-      let participa = false;
-      let gananciaEnCarro = 0;
-
-      if ((v.modalidadSocio === 'INVERSIONISTA' || v.modalidadSocio === 'COMBINADO') && v.socioInversionistaId === p.id) {
-        participa = true;
-        gananciaEnCarro += fin.pagoInversionista;
-      }
-      if ((v.modalidadSocio === 'NEGOCIO' || v.modalidadSocio === 'COMBINADO') && (v.sociosNegocioIds || []).includes(p.id)) {
-        participa = true;
-        gananciaEnCarro += fin.pagoPorCadaSocioNegocio;
-      }
-      if ((fin.capitalPorSocioMap[p.id] || 0) > 0) {
-        participa = true;
-      }
+      const capEnCarro = fin.capitalPorSocioMap[p.id] || 0;
+      const ganEnCarro = fin.gananciaPorSocioMap[p.id] || 0;
+      const pctEnCarro = fin.pctPorSocioMap[p.id] || 0;
+      const participa = capEnCarro > 0 || pctEnCarro > 0 || ganEnCarro !== 0;
 
       if (participa && socioStats[p.id]) {
         if (isSold) {
           socioStats[p.id].carrosVendidos++;
-          socioStats[p.id].gananciaAcumuladaVendidos += gananciaEnCarro;
+          socioStats[p.id].gananciaAcumuladaVendidos += ganEnCarro;
         } else {
           socioStats[p.id].carrosActivos++;
         }
       }
     });
+  });
+
+  // Recalcular Capital Disponible y Ganancias por Pagar por socio
+  Object.values(socioStats).forEach((st) => {
+    if (st.partner.tipo === 'Inversionista') {
+      st.capitalDisponible = st.capitalBase - st.capitalActivo;
+    } else {
+      st.capitalDisponible = 0;
+    }
+    st.gananciasPorPagar = Math.max(0, st.gananciaAcumuladaVendidos - st.gananciasPagadas);
   });
 
   // Liquidez disponible en Ubicaciones de Dinero Libre
@@ -739,42 +812,78 @@ function renderCapitalBreakdownCards(containerId) {
 
   const cap = calculateGlobalCapitalBreakdown();
 
-  // Tarjeta 1: Carlos (Capital Propio)
+  // Tarjeta 1: Carlos (Capital Propio — sin Capital Base global)
   let html = `
     <div class="partner-capital-card is-carlos">
       <div style="display:flex; justify-content:space-between; align-items:center;">
         <span style="font-size:12px; font-weight:700; color:#60a5fa; text-transform:uppercase;">👑 Capital Propio (Carlos)</span>
         <span class="badge condicion-nuevo">${formatNumberWithDots(cap.carrosActivosCarlos)} carros</span>
       </div>
-      <div style="font-size:20px; font-weight:800; color:#f8fafc; margin: 2px 0;">
+      <div style="font-size:20px; font-weight:800; color:#f8fafc; margin: 4px 0;">
         ${formatCOP(cap.capitalInvertidoPropioCarlos)}
       </div>
       <div style="font-size:11.5px; color:var(--text-muted);">
-        Dinero libre disponible: <strong style="color:#34d399;">${formatCOP(cap.liquidezTotalDisponible)}</strong>
+        Dinero libre disponible (Caja/Bancos): <strong style="color:#34d399;">${formatCOP(cap.liquidezTotalDisponible)}</strong>
       </div>
     </div>
   `;
 
-  // Tarjetas de cada Socio individualizado (Taty, Henry, Daniel, William, Jimmy y demás registrados)
+  // Tarjetas de cada Socio individualizado
   db.partners.forEach((p) => {
-    const st = cap.socioStats[p.id] || { capitalActivo: 0, carrosActivos: 0, carrosVendidos: 0, gananciaAcumuladaVendidos: 0 };
+    const st = cap.socioStats[p.id] || {
+      capitalBase: 0,
+      capitalActivo: 0,
+      capitalDisponible: 0,
+      carrosActivos: 0,
+      carrosVendidos: 0,
+      gananciaAcumuladaVendidos: 0,
+      gananciasPagadas: 0,
+      gananciasPorPagar: 0
+    };
     const esInv = p.tipo === 'Inversionista';
-    html += `
-      <div class="partner-capital-card">
-        <div style="display:flex; justify-content:space-between; align-items:center;">
-          <span style="font-size:13px; font-weight:700; color:#e2e8f0;">${esInv ? '💼' : '🤝'} ${escapeHtml(p.nombre)}</span>
-          <span class="badge ${esInv ? 'status-publicado' : 'status-compra'}" style="font-size:10.5px; padding:2px 7px;">
-            ${esInv ? 'Inv. 50/50' : 'Negocio'}
-          </span>
+
+    if (esInv) {
+      const dispColor = st.capitalDisponible >= 0 ? '#34d399' : '#f87171';
+      html += `
+        <div class="partner-capital-card" style="gap: 6px;">
+          <div style="display:flex; justify-content:space-between; align-items:center;">
+            <span style="font-size:13.5px; font-weight:700; color:#f8fafc;">💼 ${escapeHtml(p.nombre)}</span>
+            <span class="badge status-publicado" style="font-size:10.5px; padding:2px 7px;">Inversionista</span>
+          </div>
+          <div style="display:flex; justify-content:space-between; font-size:12px; color:#cbd5e1;">
+            <span>Capital Base Total:</span>
+            <strong style="color:#f8fafc;">${formatCOP(st.capitalBase)}</strong>
+          </div>
+          <div style="display:flex; justify-content:space-between; font-size:12px; color:#cbd5e1;">
+            <span>Invertido (${formatNumberWithDots(st.carrosActivos)} activos):</span>
+            <strong style="color:#fcd34d;">${formatCOP(st.capitalActivo)}</strong>
+          </div>
+          <div style="display:flex; justify-content:space-between; font-size:13px; border-top:1px solid var(--border-color); padding-top:5px;">
+            <span style="font-weight:600; color:#e2e8f0;">Capital Disponible:</span>
+            <strong style="color:${dispColor}; font-size:14.5px;">${formatCOP(st.capitalDisponible)}</strong>
+          </div>
+          <div style="display:flex; justify-content:space-between; align-items:center; font-size:11.5px; background:rgba(16,185,129,0.08); padding:5px 8px; border-radius:6px; margin-top:2px;">
+            <span style="color:#a7f3d0;">Ganancias por Pagar:</span>
+            <strong style="color:${st.gananciasPorPagar > 0 ? '#34d399' : '#94a3b8'};">${formatCOP(st.gananciasPorPagar)}</strong>
+          </div>
         </div>
-        <div style="font-size:19px; font-weight:700; color:${st.capitalActivo > 0 ? '#fcd34d' : '#94a3b8'}; margin: 2px 0;">
-          ${formatCOP(st.capitalActivo)}
+      `;
+    } else {
+      html += `
+        <div class="partner-capital-card">
+          <div style="display:flex; justify-content:space-between; align-items:center;">
+            <span style="font-size:13px; font-weight:700; color:#e2e8f0;">🤝 ${escapeHtml(p.nombre)}</span>
+            <span class="badge status-compra" style="font-size:10.5px; padding:2px 7px;">Negocio</span>
+          </div>
+          <div style="font-size:19px; font-weight:700; color:${st.capitalActivo > 0 ? '#fcd34d' : '#94a3b8'}; margin: 2px 0;">
+            ${formatCOP(st.capitalActivo)}
+          </div>
+          <div style="font-size:11.5px; color:var(--text-muted);">
+            Activos: <strong>${formatNumberWithDots(st.carrosActivos)}</strong> • Por pagar: <strong style="color:#34d399;">${formatCOP(st.gananciasPorPagar)}</strong>
+          </div>
         </div>
-        <div style="font-size:11.5px; color:var(--text-muted);">
-          Activos: <strong>${formatNumberWithDots(st.carrosActivos)}</strong> • Ganancia vend.: <strong style="color:#10b981;">${formatCOP(st.gananciaAcumuladaVendidos)}</strong>
-        </div>
-      </div>
-    `;
+      `;
+    }
   });
 
   container.innerHTML = html;
@@ -3260,13 +3369,17 @@ function sendSelectedWhatsAppMessage() {
 function renderPartnersSheet() {
   const cap = calculateGlobalCapitalBreakdown();
 
-  let totalPagadoSociosVendidos = 0;
-  let totalMiGananciaVendidos = 0;
+  let totalGananciasPorPagar = 0;
+  let totalGananciasPagadas = 0;
+  Object.values(cap.socioStats).forEach((st) => {
+    totalGananciasPorPagar += st.gananciasPorPagar || 0;
+    totalGananciasPagadas += st.gananciasPagadas || 0;
+  });
 
+  let totalMiGananciaVendidos = 0;
   db.vehicles.forEach((v) => {
     const fin = calculateVehicleFinancials(v);
     if (v.estado === 'Vendido') {
-      totalPagadoSociosVendidos += fin.totalPagosSocios;
       totalMiGananciaVendidos += fin.miGananciaNeta;
     }
   });
@@ -3285,9 +3398,9 @@ function renderPartnersSheet() {
         <div class="kpi-sub">Utilidad neta acumulada de carros liquidados</div>
       </div>
       <div class="kpi-card kpi-amber">
-        <div class="kpi-label"><span>Pagado a Socios (Vendidos)</span> <span>🤝</span></div>
-        <div class="kpi-value" style="color: #fcd34d;">${formatCOP(totalPagadoSociosVendidos)}</div>
-        <div class="kpi-sub">Total utilidades liquidadas a socios</div>
+        <div class="kpi-label"><span>Ganancias por Pagar a Socios</span> <span>💸</span></div>
+        <div class="kpi-value" style="color: #fcd34d;">${formatCOP(totalGananciasPorPagar)}</div>
+        <div class="kpi-sub">Ya liquidadas / pagadas: ${formatCOP(totalGananciasPagadas)}</div>
       </div>
     `;
   }
@@ -3299,7 +3412,7 @@ function renderPartnersSheet() {
     if (db.partners.length === 0) {
       partnersTbody.innerHTML = `
         <tr>
-          <td colspan="9" style="text-align:center; padding: 24px; color: var(--text-muted);">
+          <td colspan="7" style="text-align:center; padding: 24px; color: var(--text-muted);">
             No hay socios registrados. Agrega Socios Inversionistas o Socios de Negocio.
           </td>
         </tr>
@@ -3307,36 +3420,56 @@ function renderPartnersSheet() {
     } else {
       partnersTbody.innerHTML = db.partners
         .map((p) => {
-          const st = cap.socioStats[p.id] || { capitalActivo: 0, carrosActivos: 0, carrosVendidos: 0, gananciaAcumuladaVendidos: 0 };
+          const st = cap.socioStats[p.id] || {
+            capitalBase: 0,
+            capitalActivo: 0,
+            capitalDisponible: 0,
+            carrosActivos: 0,
+            carrosVendidos: 0,
+            gananciaAcumuladaVendidos: 0,
+            gananciasPagadas: 0,
+            gananciasPorPagar: 0
+          };
           const esInv = p.tipo === 'Inversionista';
+          const dispColor = st.capitalDisponible >= 0 ? '#34d399' : '#f87171';
           return `
             <tr>
               <td>
                 <div style="font-weight: 700; color: #f8fafc;">${escapeHtml(p.nombre)}</div>
-                <div style="font-size: 12px; color: var(--text-muted);">${escapeHtml(p.notas || '')}</div>
+                <div style="font-size: 11.5px; color: var(--text-muted);">
+                  ${p.telefono ? `📞 ${escapeHtml(p.telefono)}` : ''}${p.telefono && p.documento ? ' • ' : ''}${p.documento ? `ID: ${escapeHtml(p.documento)}` : ''}
+                </div>
+                ${p.notas ? `<div style="font-size: 11.5px; color: var(--text-muted);">${escapeHtml(p.notas)}</div>` : ''}
               </td>
               <td>
                 <span class="badge ${esInv ? 'status-publicado' : 'status-compra'}">
-                  ${esInv ? '💼 Socio Inversionista' : '🤝 Socio de Negocio'}
+                  ${esInv ? '💼 Inversionista' : '🤝 Negocio'}
                 </span>
               </td>
-              <td>
-                <strong style="color: ${esInv ? '#38bdf8' : '#c4b5fd'};">
-                  ${esInv ? '50% / 50% Fijo' : 'Según cantidad (Entre 2 = 50%, Entre 3 = 33.3%)'}
-                </strong>
+              <td style="font-weight: 700; color: #f8fafc; font-size: 14px;">
+                ${esInv ? formatCOP(st.capitalBase) : '<span style="color:var(--text-muted); font-weight:400;">N/A</span>'}
               </td>
               <td>
-                <div>📞 ${escapeHtml(p.telefono || '-')}</div>
-                <div style="font-size: 12px; color: var(--text-muted);">ID: ${escapeHtml(p.documento || '-')}</div>
+                <div style="font-weight: 700; color: #fcd34d; font-size: 14px;">${formatCOP(st.capitalActivo)}</div>
+                <div style="font-size: 11.5px; color: var(--text-muted);">${formatNumberWithDots(st.carrosActivos)} activo(s) • ${formatNumberWithDots(st.carrosVendidos)} vendido(s)</div>
               </td>
-              <td><strong>${formatNumberWithDots(st.carrosActivos)}</strong> activos</td>
-              <td style="font-weight: 700; color: #fcd34d; font-size: 14.5px;">${formatCOP(st.capitalActivo)}</td>
-              <td><strong>${formatNumberWithDots(st.carrosVendidos)}</strong> vendidos</td>
-              <td style="font-weight: 700; color: #10b981;">${formatCOP(st.gananciaAcumuladaVendidos)}</td>
+              <td style="font-weight: 800; color: ${esInv ? dispColor : 'var(--text-muted)'}; font-size: 14.5px;">
+                ${esInv ? formatCOP(st.capitalDisponible) : '<span style="font-weight:400;">N/A</span>'}
+              </td>
               <td>
-                <div style="display: flex; gap: 6px;">
-                  <button class="btn btn-outline btn-sm" onclick="openPartnerModal('${p.id}')">✏️</button>
-                  <button class="btn btn-danger-ghost btn-sm" onclick="deletePartner('${p.id}')">🗑️</button>
+                <div style="font-weight: 800; color: ${st.gananciasPorPagar > 0 ? '#34d399' : '#94a3b8'}; font-size: 14.5px;">
+                  ${formatCOP(st.gananciasPorPagar)}
+                </div>
+                <div style="font-size: 11px; color: var(--text-muted);">
+                  Acum: ${formatCOP(st.gananciaAcumuladaVendidos)} • Pagado: ${formatCOP(st.gananciasPagadas)}
+                </div>
+              </td>
+              <td>
+                <div style="display: flex; gap: 6px; flex-wrap: wrap;">
+                  ${esInv ? `<button class="btn btn-outline btn-sm" onclick="openPartnerCapitalMovModal('${p.id}')" title="Registrar Aumento o Retiro de Capital Base">💰 ± Base</button>` : ''}
+                  <button class="btn ${st.gananciasPorPagar > 0 ? 'btn-success' : 'btn-outline'} btn-sm" onclick="openPartnerProfitPayModal('${p.id}')" title="Liquidar / Marcar ganancia como pagada">💸 Liquidar</button>
+                  <button class="btn btn-outline btn-sm" onclick="openPartnerModal('${p.id}')" title="Editar Socio">✏️</button>
+                  <button class="btn btn-danger-ghost btn-sm" onclick="deletePartner('${p.id}')" title="Eliminar Socio">🗑️</button>
                 </div>
               </td>
             </tr>
@@ -3840,6 +3973,161 @@ function handleNegocioCheckboxChange() {
   onVehiclePriceOrModeInput();
 }
 
+// ============================================================================
+// CONSTRUCTOR DE FUENTES DE CAPITAL PARA COMPRA DE VEHÍCULOS (100% SOCIO O MIXTO)
+// ============================================================================
+let currentVehicleFundingRows = [];
+
+function buildPartnerFundingOptionsHtml(selectedPartnerId) {
+  const cap = calculateGlobalCapitalBreakdown();
+  const invs = db.partners.filter((p) => p.tipo === 'Inversionista');
+  const others = db.partners.filter((p) => p.tipo !== 'Inversionista');
+  const ordered = [...invs, ...others];
+
+  let opts = `<option value="">-- Seleccionar socio --</option>`;
+  ordered.forEach((p) => {
+    const st = cap.socioStats[p.id];
+    const dispTxt = p.tipo === 'Inversionista' && st
+      ? ` (Disp: ${formatCOP(st.capitalDisponible)})`
+      : ' (Negocio)';
+    const sel = p.id === selectedPartnerId ? 'selected' : '';
+    opts += `<option value="${p.id}" ${sel}>${p.tipo === 'Inversionista' ? '💼' : '🤝'} ${escapeHtml(p.nombre)}${dispTxt}</option>`;
+  });
+  return opts;
+}
+
+function renderVehicleFundingRows() {
+  const container = document.getElementById('veh-partner-funding-rows');
+  if (!container) return;
+
+  if (currentVehicleFundingRows.length === 0) {
+    container.innerHTML = `<div style="font-size: 12px; color: var(--text-muted); padding: 4px 0;">Haz clic en "➕ Agregar Socio" para asignar cuánto aporta cada socio en la compra.</div>`;
+    recalcVehicleFundingTotals();
+    return;
+  }
+
+  container.innerHTML = currentVehicleFundingRows
+    .map(
+      (row, idx) => `
+      <div style="display: grid; grid-template-columns: 2fr 1.2fr 0.8fr auto; gap: 8px; align-items: end; background: rgba(2, 6, 23, 0.45); padding: 8px 10px; border-radius: 8px; border: 1px solid var(--border-color);">
+        <div class="form-group" style="margin: 0;">
+          <label style="font-size: 11px;">Socio Aportante</label>
+          <select onchange="updateVehicleFundingRow(${idx}, 'partnerId', this.value)">
+            ${buildPartnerFundingOptionsHtml(row.partnerId)}
+          </select>
+        </div>
+        <div class="form-group" style="margin: 0;">
+          <label style="font-size: 11px;">Monto Aportado ($)</label>
+          <input type="text" inputmode="numeric" value="${row.monto ? formatNumberWithDots(row.monto) : ''}" placeholder="Ej: 20.000.000" oninput="formatCurrencyInput(this); updateVehicleFundingRow(${idx}, 'monto', parseCurrencyInput(this.value))" />
+        </div>
+        <div class="form-group" style="margin: 0;">
+          <label style="font-size: 11px;">% Ganancia</label>
+          <input type="number" min="0" max="100" step="0.5" value="${row.pctGanancia ?? 50}" oninput="updateVehicleFundingRow(${idx}, 'pctGanancia', Number(this.value) || 0)" />
+        </div>
+        <button type="button" class="btn btn-danger-ghost btn-sm" onclick="removeVehicleFundingRow(${idx})" title="Quitar socio">✕</button>
+      </div>
+    `
+    )
+    .join('');
+
+  recalcVehicleFundingTotals();
+}
+
+function addVehicleFundingRow(partnerId = '', monto = 0, pctGanancia = null) {
+  const mode = document.getElementById('veh-modalidad-socio')?.value || 'INVERSIONISTA';
+  const defaultPct = pctGanancia !== null ? pctGanancia : (currentVehicleFundingRows.length === 0 && mode === 'INVERSIONISTA' ? 50 : 25);
+  currentVehicleFundingRows.push({
+    partnerId: partnerId || '',
+    monto: Number(monto) || 0,
+    pctGanancia: defaultPct
+  });
+  renderVehicleFundingRows();
+}
+
+function removeVehicleFundingRow(idx) {
+  currentVehicleFundingRows.splice(idx, 1);
+  renderVehicleFundingRows();
+}
+
+function updateVehicleFundingRow(idx, field, value) {
+  if (!currentVehicleFundingRows[idx]) return;
+  currentVehicleFundingRows[idx][field] = value;
+  if (field === 'partnerId' && idx === 0) {
+    const selInv = document.getElementById('veh-socio-inversionista');
+    if (selInv && value) selInv.value = value;
+  }
+  recalcVehicleFundingTotals();
+}
+
+function syncPrimaryInvestorRow() {
+  const mode = document.getElementById('veh-modalidad-socio')?.value;
+  if (mode !== 'INVERSIONISTA') return;
+  const primaryId = document.getElementById('veh-socio-inversionista')?.value || '';
+  if (currentVehicleFundingRows.length === 0) {
+    const precioCompra = parseCurrencyInput(document.getElementById('veh-precio-compra')?.value);
+    const capCarlos = parseCurrencyInput(document.getElementById('veh-capital-carlos')?.value);
+    currentVehicleFundingRows.push({
+      partnerId: primaryId,
+      monto: Math.max(0, precioCompra - capCarlos),
+      pctGanancia: 50
+    });
+  } else {
+    currentVehicleFundingRows[0].partnerId = primaryId;
+  }
+  renderVehicleFundingRows();
+}
+
+function autoCompleteRemainingFunding() {
+  const precioCompra = parseCurrencyInput(document.getElementById('veh-precio-compra')?.value);
+  const capCarlos = parseCurrencyInput(document.getElementById('veh-capital-carlos')?.value);
+  const sumSocios = currentVehicleFundingRows.reduce((acc, r) => acc + (Number(r.monto) || 0), 0);
+  const faltante = Math.max(0, precioCompra - capCarlos - sumSocios);
+
+  if (currentVehicleFundingRows.length === 0) {
+    const firstInv = db.partners.find((p) => p.tipo === 'Inversionista')?.id || '';
+    addVehicleFundingRow(firstInv, Math.max(0, precioCompra - capCarlos), 50);
+  } else {
+    const lastIdx = currentVehicleFundingRows.length - 1;
+    currentVehicleFundingRows[lastIdx].monto = (Number(currentVehicleFundingRows[lastIdx].monto) || 0) + faltante;
+    renderVehicleFundingRows();
+  }
+}
+
+function recalcVehicleFundingTotals() {
+  const mode = document.getElementById('veh-modalidad-socio')?.value || 'PROPIO';
+  const precioCompra = parseCurrencyInput(document.getElementById('veh-precio-compra')?.value);
+  const capCarlos = parseCurrencyInput(document.getElementById('veh-capital-carlos')?.value);
+  const capSociosEl = document.getElementById('veh-capital-socios');
+  const hintEl = document.getElementById('veh-funding-balance-hint');
+
+  const usesRows = mode === 'INVERSIONISTA' || mode === 'MIXTO_INVERSIONISTAS';
+  const sumSocios = usesRows
+    ? currentVehicleFundingRows.reduce((acc, r) => acc + (Number(r.monto) || 0), 0)
+    : Math.max(0, precioCompra - capCarlos);
+
+  if (capSociosEl) capSociosEl.value = formatNumberWithDots(sumSocios);
+
+  if (hintEl) {
+    const totalAsignado = capCarlos + sumSocios;
+    const diff = precioCompra - totalAsignado;
+    if (precioCompra === 0) {
+      hintEl.textContent = 'Ingresa el precio de compra para asignar aportes';
+      hintEl.style.color = 'var(--text-muted)';
+    } else if (diff === 0) {
+      hintEl.textContent = `✅ Aportes exactos: ${formatCOP(totalAsignado)} (100% cubierto)`;
+      hintEl.style.color = '#34d399';
+    } else if (diff > 0) {
+      hintEl.textContent = `⚠️ Faltan ${formatCOP(diff)} por asignar para completar la compra`;
+      hintEl.style.color = '#fcd34d';
+    } else {
+      hintEl.textContent = `⚠️ Excede el precio de compra por ${formatCOP(Math.abs(diff))}`;
+      hintEl.style.color = '#f87171';
+    }
+  }
+
+  updateVehiclePartnerPreview();
+}
+
 function handlePartnerModeChange() {
   const mode = document.getElementById('veh-modalidad-socio').value;
   document.getElementById('group-select-inversionista').style.display =
@@ -3848,6 +4136,10 @@ function handlePartnerModeChange() {
     mode === 'NEGOCIO' || mode === 'COMBINADO' ? 'flex' : 'none';
   document.getElementById('group-checkboxes-negocio').style.display =
     mode === 'NEGOCIO' || mode === 'COMBINADO' ? 'flex' : 'none';
+
+  const fundingBox = document.getElementById('veh-partner-funding-container');
+  const usesRows = mode === 'INVERSIONISTA' || mode === 'MIXTO_INVERSIONISTAS';
+  if (fundingBox) fundingBox.style.display = usesRows ? 'block' : 'none';
 
   onVehiclePriceOrModeInput();
 }
@@ -3858,37 +4150,60 @@ function onVehiclePriceOrModeInput() {
   const numNeg = Number(document.getElementById('veh-num-socios-negocio').value) || 2;
 
   let defaultCarlosCap = precioCompra;
-  if (mode === 'INVERSIONISTA') defaultCarlosCap = Math.round(precioCompra * 0.5);
-  else if (mode === 'NEGOCIO') defaultCarlosCap = Math.round(precioCompra / numNeg);
-  else if (mode === 'COMBINADO') defaultCarlosCap = Math.round((precioCompra * 0.5) / numNeg);
-
-  const capCarlosEl = document.getElementById('veh-capital-carlos');
-  const capSociosEl = document.getElementById('veh-capital-socios');
-  if (capCarlosEl && capSociosEl) {
-    capCarlosEl.value = defaultCarlosCap ? formatNumberWithDots(defaultCarlosCap) : '0';
-    const sociosCap = Math.max(0, precioCompra - defaultCarlosCap);
-    capSociosEl.value = formatNumberWithDots(sociosCap);
+  if (mode === 'INVERSIONISTA' || mode === 'MIXTO_INVERSIONISTAS') {
+    defaultCarlosCap = 0; // Por defecto permite 100% socio (ej: Taty $20M, Carlos $0) y Carlos puede digitar si aporta
+  } else if (mode === 'NEGOCIO') {
+    defaultCarlosCap = Math.round(precioCompra / numNeg);
+  } else if (mode === 'COMBINADO') {
+    defaultCarlosCap = Math.round((precioCompra * 0.5) / numNeg);
   }
 
-  updateVehiclePartnerPreview();
+  const capCarlosEl = document.getElementById('veh-capital-carlos');
+  if (capCarlosEl) {
+    capCarlosEl.value = defaultCarlosCap ? formatNumberWithDots(defaultCarlosCap) : '0';
+  }
+
+  if (mode === 'INVERSIONISTA' || mode === 'MIXTO_INVERSIONISTAS') {
+    const primaryInvId = document.getElementById('veh-socio-inversionista')?.value || db.partners.find((p) => p.tipo === 'Inversionista')?.id || '';
+    if (currentVehicleFundingRows.length === 0) {
+      currentVehicleFundingRows = [
+        { partnerId: primaryInvId, monto: Math.max(0, precioCompra - defaultCarlosCap), pctGanancia: 50 }
+      ];
+    } else if (currentVehicleFundingRows.length === 1) {
+      currentVehicleFundingRows[0].monto = Math.max(0, precioCompra - defaultCarlosCap);
+      if (!currentVehicleFundingRows[0].partnerId && primaryInvId) {
+        currentVehicleFundingRows[0].partnerId = primaryInvId;
+      }
+    }
+    renderVehicleFundingRows();
+  } else {
+    currentVehicleFundingRows = [];
+    recalcVehicleFundingTotals();
+  }
 }
 
 function onManualCarlosCapitalInput() {
   const precioCompra = parseCurrencyInput(document.getElementById('veh-precio-compra').value);
+  const mode = document.getElementById('veh-modalidad-socio').value;
   let capCarlos = parseCurrencyInput(document.getElementById('veh-capital-carlos').value);
   if (capCarlos > precioCompra) {
     capCarlos = precioCompra;
     document.getElementById('veh-capital-carlos').value = formatNumberWithDots(capCarlos);
   }
-  const sociosCap = Math.max(0, precioCompra - capCarlos);
-  document.getElementById('veh-capital-socios').value = formatNumberWithDots(sociosCap);
-  updateVehiclePartnerPreview();
+  if ((mode === 'INVERSIONISTA' || mode === 'MIXTO_INVERSIONISTAS') && currentVehicleFundingRows.length === 1) {
+    currentVehicleFundingRows[0].monto = Math.max(0, precioCompra - capCarlos);
+    renderVehicleFundingRows();
+  } else {
+    recalcVehicleFundingTotals();
+  }
 }
 
 function updateVehiclePartnerPreview() {
   const vehId = document.getElementById('veh-id').value;
   const existingVeh = db.vehicles.find((v) => v.id === vehId);
   const checkedNegIds = Array.from(document.querySelectorAll('input[name="veh-socio-neg-check"]:checked')).map((c) => c.value);
+  const mode = document.getElementById('veh-modalidad-socio').value;
+  const usesRows = mode === 'INVERSIONISTA' || mode === 'MIXTO_INVERSIONISTAS';
 
   const tempVeh = {
     estado: document.getElementById('veh-estado').value,
@@ -3896,10 +4211,11 @@ function updateVehiclePartnerPreview() {
     precioPublicado: parseCurrencyInput(document.getElementById('veh-precio-publicado').value),
     precioVenta: parseCurrencyInput(document.getElementById('veh-precio-venta').value),
     capitalCompraCarlos: parseCurrencyInput(document.getElementById('veh-capital-carlos').value),
-    modalidadSocio: document.getElementById('veh-modalidad-socio').value,
+    modalidadSocio: mode,
     socioInversionistaId: document.getElementById('veh-socio-inversionista').value,
     numSociosNegocio: Number(document.getElementById('veh-num-socios-negocio').value) || 2,
     sociosNegocioIds: checkedNegIds,
+    aportesCompra: usesRows ? currentVehicleFundingRows.filter((r) => r.partnerId) : [],
     gastos: existingVeh ? existingVeh.gastos : []
   };
 
@@ -3921,7 +4237,7 @@ function updateVehiclePartnerPreview() {
       <strong style="color: ${fin.gananciaNeta >= 0 ? '#10b981' : '#ef4444'};">${formatCOP(fin.gananciaNeta)}</strong>
     </div>
     <div class="split-row">
-      <span>Pago de Ganancia a Socio(s) (${escapeHtml(fin.resumenSociedad)}):</span>
+      <span>Ganancia para Socio(s) (${escapeHtml(fin.resumenSociedad)}):</span>
       <strong style="color: #fcd34d;">${formatCOP(fin.totalPagosSocios)}</strong>
     </div>
     <div class="split-row">
@@ -3936,6 +4252,7 @@ function openVehicleModal(vehId = null) {
   form.reset();
   initColombiaCatalogUI();
   populateMoneyLocationsSelect('veh-money-location-id', '', true);
+  currentVehicleFundingRows = [];
 
   if (vehId) {
     const v = db.vehicles.find((item) => item.id === vehId);
@@ -3972,9 +4289,33 @@ function openVehicleModal(vehId = null) {
     document.getElementById('group-checkboxes-negocio').style.display =
       mode === 'NEGOCIO' || mode === 'COMBINADO' ? 'flex' : 'none';
 
+    const usesRows = mode === 'INVERSIONISTA' || mode === 'MIXTO_INVERSIONISTAS';
+    const fundingBox = document.getElementById('veh-partner-funding-container');
+    if (fundingBox) fundingBox.style.display = usesRows ? 'block' : 'none';
+
     document.getElementById('veh-capital-carlos').value = formatNumberWithDots(fin.capitalCompraCarlos);
-    document.getElementById('veh-capital-socios').value = formatNumberWithDots(Math.max(0, fin.precioCompra - fin.capitalCompraCarlos));
-    updateVehiclePartnerPreview();
+
+    if (usesRows) {
+      if (Array.isArray(v.aportesCompra) && v.aportesCompra.length > 0) {
+        currentVehicleFundingRows = v.aportesCompra.map((ap) => ({
+          partnerId: ap.partnerId || '',
+          monto: Number(ap.monto) || 0,
+          pctGanancia: Number(ap.pctGanancia) || 50
+        }));
+      } else if (v.socioInversionistaId) {
+        currentVehicleFundingRows = [
+          {
+            partnerId: v.socioInversionistaId,
+            monto: Math.max(0, fin.precioCompra - fin.capitalCompraCarlos),
+            pctGanancia: 50
+          }
+        ];
+      }
+      renderVehicleFundingRows();
+    } else {
+      document.getElementById('veh-capital-socios').value = formatNumberWithDots(Math.max(0, fin.precioCompra - fin.capitalCompraCarlos));
+      recalcVehicleFundingTotals();
+    }
   } else {
     document.getElementById('modal-vehicle-title').textContent = 'Registrar Nuevo Vehículo en Inventario';
     document.getElementById('veh-id').value = '';
@@ -3997,8 +4338,22 @@ function saveVehicle(event) {
   const colorVal = document.getElementById('veh-color').value.trim();
   const kmVal = parseCurrencyInput(document.getElementById('veh-kilometraje').value);
   const precioCompraVal = parseCurrencyInput(document.getElementById('veh-precio-compra').value);
-  const capitalCarlosVal = Math.min(precioCompraVal, parseCurrencyInput(document.getElementById('veh-capital-carlos').value));
+  const capitalCarlosVal = Math.min(precioCompraVal, Math.max(0, parseCurrencyInput(document.getElementById('veh-capital-carlos').value)));
   const selectedMoneyLocId = document.getElementById('veh-money-location-id').value;
+  const mode = document.getElementById('veh-modalidad-socio').value;
+  const usesRows = mode === 'INVERSIONISTA' || mode === 'MIXTO_INVERSIONISTAS';
+
+  const cleanAportes = usesRows
+    ? currentVehicleFundingRows
+        .filter((r) => r.partnerId && (Number(r.monto) > 0 || Number(r.pctGanancia) > 0))
+        .map((r) => ({
+          partnerId: r.partnerId,
+          monto: Math.max(0, Number(r.monto) || 0),
+          pctGanancia: Math.max(0, Number(r.pctGanancia) || 0)
+        }))
+    : [];
+
+  const primaryInvId = cleanAportes[0]?.partnerId || document.getElementById('veh-socio-inversionista').value || '';
 
   const payload = {
     id: id || 'veh-' + Date.now(),
@@ -4020,10 +4375,11 @@ function saveVehicle(event) {
     capitalCompraCarlos: capitalCarlosVal,
     fechaCompra: document.getElementById('veh-fecha-compra').value || getTodayISO(),
     fechaVenta: document.getElementById('veh-fecha-venta').value || (document.getElementById('veh-estado').value === 'Vendido' ? getTodayISO() : ''),
-    modalidadSocio: document.getElementById('veh-modalidad-socio').value,
-    socioInversionistaId: document.getElementById('veh-socio-inversionista').value || '',
+    modalidadSocio: mode,
+    socioInversionistaId: primaryInvId,
     numSociosNegocio: Number(document.getElementById('veh-num-socios-negocio').value) || 2,
-    sociosNegocioIds: checkedNegIds
+    sociosNegocioIds: checkedNegIds,
+    aportesCompra: cleanAportes
   };
 
   // Si seleccionó descontar el aporte de capital propio de Carlos de una Ubicación de Dinero Libre
@@ -4036,6 +4392,7 @@ function saveVehicle(event) {
     if (idx !== -1) {
       payload.gastos = db.vehicles[idx].gastos || [];
       payload.peritaje = db.vehicles[idx].peritaje || null;
+      payload.peritajeLocked = db.vehicles[idx].peritajeLocked || false;
       db.vehicles[idx] = payload;
     }
   } else {
@@ -4082,8 +4439,30 @@ function deleteVehicle(vehId) {
 }
 
 // ============================================================================
-// GASTOS POR VEHÍCULO CON DESCUENTO DE DINERO LIBRE Y APORTANTE DE CAPITAL
+// GASTOS POR VEHÍCULO CON SELECTOR OBLIGATORIO DE ORIGEN DEL DINERO
 // ============================================================================
+function onVehicleExpenseSourceChange() {
+  const src = document.getElementById('vexp-pagado-por')?.value || 'CARLOS';
+  const locGroup = document.getElementById('group-vexp-money-location');
+  const locSel = document.getElementById('vexp-money-location');
+  const hintEl = document.getElementById('vexp-source-hint');
+
+  const isCarlos = src === 'CARLOS';
+  if (locGroup) locGroup.style.display = isCarlos ? 'flex' : 'none';
+  if (locSel) locSel.required = isCarlos;
+
+  if (hintEl) {
+    if (isCarlos) {
+      hintEl.textContent = '👑 Se descontará de la cuenta/efectivo de Carlos (sin tocar la base de ningún socio) y se sumará al capital que Carlos recupera al vender.';
+      hintEl.style.color = '#93c5fd';
+    } else {
+      const p = db.partners.find((x) => x.id === src);
+      hintEl.textContent = `💼 Saldrá de la Base de ${p ? p.nombre : 'este socio'} (se descuenta de su Capital Disponible y se suma a su inversión en este carro; no toca la caja de Carlos).`;
+      hintEl.style.color = '#fcd34d';
+    }
+  }
+}
+
 function openVehicleExpensesModal(vehId) {
   const v = db.vehicles.find((item) => item.id === vehId);
   if (!v) return;
@@ -4097,16 +4476,36 @@ function openVehicleExpensesModal(vehId) {
 
   populateMoneyLocationsSelect('vexp-money-location', '', false);
 
-  // Selector de quién aportó el capital de este gasto (Carlos o un Socio)
+  // Selector obligatorio: "¿De dónde sale este dinero?" (priorizando socios vinculados al vehículo)
   const pagadoSelect = document.getElementById('vexp-pagado-por');
   if (pagadoSelect) {
+    const cap = calculateGlobalCapitalBreakdown();
+    const linkedIds = new Set();
+    if (v.socioInversionistaId) linkedIds.add(v.socioInversionistaId);
+    (v.sociosNegocioIds || []).forEach((id) => linkedIds.add(id));
+    (v.aportesCompra || []).forEach((ap) => {
+      if (ap.partnerId) linkedIds.add(ap.partnerId);
+    });
+
+    const linkedPartners = db.partners.filter((p) => linkedIds.has(p.id));
+    const otherInvestors = db.partners.filter((p) => !linkedIds.has(p.id) && p.tipo === 'Inversionista');
+    const otherPartners = db.partners.filter((p) => !linkedIds.has(p.id) && p.tipo !== 'Inversionista');
+    const ordered = [...linkedPartners, ...otherInvestors, ...otherPartners];
+
     pagadoSelect.innerHTML =
-      `<option value="CARLOS">👑 Carlos (Capital Propio — Descuenta de Ubicación)</option>` +
-      db.partners
-        .map((p) => `<option value="${p.id}">🤝 Socio: ${escapeHtml(p.nombre)} (Suma a capital del socio)</option>`)
+      `<option value="CARLOS">👑 Dinero propio (Carlos / Caja)</option>` +
+      ordered
+        .map((p) => {
+          const st = cap.socioStats[p.id];
+          const dispTxt = p.tipo === 'Inversionista' && st ? ` — Disp: ${formatCOP(st.capitalDisponible)}` : '';
+          const star = linkedIds.has(p.id) ? '⭐ ' : '';
+          return `<option value="${p.id}">💼 Base del socio: ${star}${escapeHtml(p.nombre)}${dispTxt}</option>`;
+        })
         .join('');
+    pagadoSelect.value = 'CARLOS';
   }
 
+  onVehicleExpenseSourceChange();
   renderVehicleExpensesModalContent(v);
   document.getElementById('modal-veh-expenses').classList.add('open');
 }
@@ -4119,7 +4518,7 @@ function renderVehicleExpensesModalContent(v) {
     <div class="kpi-card">
       <div class="kpi-label"><span>Precio Compra</span></div>
       <div class="kpi-value" style="font-size: 18px;">${formatCOP(fin.precioCompra)}</div>
-      <div class="kpi-sub">Carlos: ${formatCOP(fin.capitalCompraCarlos)}</div>
+      <div class="kpi-sub">Carlos: ${formatCOP(fin.capitalCompraCarlos)} • Socios: ${formatCOP(Math.max(0, fin.precioCompra - fin.capitalCompraCarlos))}</div>
     </div>
     <div class="kpi-card kpi-amber">
       <div class="kpi-label"><span>Gastos Alistamiento</span></div>
@@ -4130,9 +4529,9 @@ function renderVehicleExpensesModalContent(v) {
       <div class="kpi-value" style="font-size: 18px;">${formatCOP(fin.totalComisiones)}</div>
     </div>
     <div class="kpi-card kpi-green">
-      <div class="kpi-label"><span>Costo Total Acumulado</span></div>
+      <div class="kpi-label"><span>Costo Total del Vehículo</span></div>
       <div class="kpi-value" style="font-size: 18px;">${formatCOP(fin.costoTotal)}</div>
-      <div class="kpi-sub">Cap. Total Carlos: ${formatCOP(fin.capitalTotalCarlosEnVehiculo)}</div>
+      <div class="kpi-sub">Carlos: ${formatCOP(fin.capitalTotalCarlosEnVehiculo)} • Socios: ${formatCOP(fin.capitalTotalSociosEnVehiculo)}</div>
     </div>
   `;
 
@@ -4149,11 +4548,13 @@ function renderVehicleExpensesModalContent(v) {
   } else {
     tbody.innerHTML = gastos
       .map((g) => {
-        const locLabel = g.locationId ? getMoneyLocationLabel(g.locationId) : 'Sin ubicación';
-        let aportanteLabel = '👑 Carlos';
-        if (g.pagadoPor && g.pagadoPor.startsWith('soc-')) {
+        const isSocio = g.pagadoPor && g.pagadoPor.startsWith('soc-');
+        let origenTitle = g.locationId ? getMoneyLocationLabel(g.locationId) : 'Dinero propio (Carlos)';
+        let aportanteLabel = '👑 Dinero propio (Carlos)';
+        if (isSocio) {
           const sp = db.partners.find((p) => p.id === g.pagadoPor);
-          aportanteLabel = `🤝 ${sp ? sp.nombre : 'Socio'}`;
+          origenTitle = `Base Socio: ${sp ? sp.nombre : 'Socio'}`;
+          aportanteLabel = '💼 Descontado de Base del Socio';
         }
         return `
           <tr>
@@ -4165,8 +4566,8 @@ function renderVehicleExpensesModalContent(v) {
             </td>
             <td style="font-weight: 600;">${escapeHtml(g.concepto)}</td>
             <td>
-              <div style="font-size: 12px; color: #38bdf8; font-weight: 600;">${escapeHtml(locLabel)}</div>
-              <div style="font-size: 11px; color: var(--text-muted);">Capital: ${escapeHtml(aportanteLabel)}</div>
+              <div style="font-size: 12px; color: ${isSocio ? '#fcd34d' : '#38bdf8'}; font-weight: 600;">${escapeHtml(origenTitle)}</div>
+              <div style="font-size: 11px; color: var(--text-muted);">${escapeHtml(aportanteLabel)}</div>
             </td>
             <td style="font-weight: 700;">${formatCOP(g.valor)}</td>
             <td>
@@ -4178,9 +4579,29 @@ function renderVehicleExpensesModalContent(v) {
       .join('');
   }
 
+  // Desglose claro de Reintegro de Capital por Socio + Carlos + Reparto de Utilidades
+  const sociosReintegroRows = Object.entries(fin.capitalPorSocioMap)
+    .filter(([, monto]) => monto > 0)
+    .map(([pid, monto]) => {
+      const pObj = db.partners.find((p) => p.id === pid);
+      const ganSocio = fin.gananciaPorSocioMap[pid] || 0;
+      const pctSocio = fin.pctPorSocioMap[pid] || 0;
+      return `
+        <div class="split-row">
+          <span>💼 Reintegro Capital ${escapeHtml(pObj ? pObj.nombre : 'Socio')} (regresa a su Disponible, Base intacta):</span>
+          <strong style="color: #fcd34d;">${formatCOP(monto)}</strong>
+        </div>
+        <div class="split-row">
+          <span>↳ Ganancia por Pagar a ${escapeHtml(pObj ? pObj.nombre : 'Socio')} (${pctSocio.toFixed(pctSocio % 1 === 0 ? 0 : 1)}% — aparte de su Base):</span>
+          <strong style="color: #34d399;">${formatCOP(ganSocio)}</strong>
+        </div>
+      `;
+    })
+    .join('');
+
   document.getElementById('veh-exp-final-settlement').innerHTML = `
     <h4 style="color: #60a5fa; font-size: 14px; margin-bottom: 4px;">
-      📊 Resumen de Liquidación (${v.estado === 'Vendido' ? 'VEHÍCULO VENDIDO - RESULTADO FINAL' : 'PROYECCIÓN AL VENDER'})
+      📊 Resumen de Liquidación Exacta (${v.estado === 'Vendido' ? 'VEHÍCULO VENDIDO — CAPITAL LIBERADO' : 'PROYECCIÓN AL VENDER'})
     </h4>
     <div class="split-row">
       <span>Precio de Venta (${v.estado === 'Vendido' ? 'Final' : 'Proyectado'}):</span>
@@ -4191,18 +4612,15 @@ function renderVehicleExpensesModalContent(v) {
       <strong style="color: #f87171;">- ${formatCOP(fin.costoTotal)}</strong>
     </div>
     <div class="split-row">
-      <span>Capital Aportado en este Vehículo:</span>
-      <span><strong style="color:#38bdf8;">Carlos: ${formatCOP(fin.capitalTotalCarlosEnVehiculo)}</strong> • <strong style="color:#fcd34d;">Socio(s): ${formatCOP(fin.capitalTotalSociosEnVehiculo)}</strong></span>
-    </div>
-    <div class="split-row">
-      <span><strong>(=) Ganancia Neta Total del Vehículo (Cuánto quedó al final):</strong></span>
+      <span><strong>(=) Utilidad Neta a Repartir:</strong></span>
       <strong style="color: ${fin.gananciaNeta >= 0 ? '#10b981' : '#ef4444'}; font-size: 15px;">${formatCOP(fin.gananciaNeta)}</strong>
     </div>
-    <div class="split-row">
-      <span>Reparto con Socios (${escapeHtml(fin.resumenSociedad)}):</span>
-      <strong style="color: #fcd34d;">Socio(s): ${formatCOP(fin.totalPagosSocios)}</strong>
+    <div class="split-row" style="border-top: 1px dashed var(--border-color); padding-top: 6px; margin-top: 4px;">
+      <span>👑 Capital Recuperado Carlos (Compra ${formatCOP(fin.capitalCompraCarlos)} + Gastos Carlos ${formatCOP(fin.gastosPagadosPorCarlos)}):</span>
+      <strong style="color: #38bdf8;">${formatCOP(fin.capitalTotalCarlosEnVehiculo)}</strong>
     </div>
-    <div class="split-row">
+    ${sociosReintegroRows}
+    <div class="split-row" style="border-top: 1px solid var(--border-color); padding-top: 6px; margin-top: 4px;">
       <span><strong>🏆 Ganancia Libre Carlos (${fin.miPorcentaje.toFixed(1)}%):</strong></span>
       <strong style="color: #38bdf8; font-size: 16px;">${formatCOP(fin.miGananciaNeta)}</strong>
     </div>
@@ -4216,8 +4634,9 @@ function addVehicleExpense(event) {
   if (!v) return;
 
   const valor = parseCurrencyInput(document.getElementById('vexp-valor').value);
-  const locationId = document.getElementById('vexp-money-location').value;
   const pagadoPor = document.getElementById('vexp-pagado-por')?.value || 'CARLOS';
+  const isCarlos = pagadoPor === 'CARLOS';
+  const locationId = isCarlos ? (document.getElementById('vexp-money-location')?.value || '') : '';
 
   const newExp = {
     id: 'vexp-' + Date.now(),
@@ -4229,8 +4648,8 @@ function addVehicleExpense(event) {
     fecha: document.getElementById('vexp-fecha').value || getTodayISO()
   };
 
-  // Descontar automáticamente del saldo de la Ubicación de Dinero Libre seleccionada
-  if (locationId && valor > 0) {
+  // Solo descuenta de la caja/banco de Carlos si salió de Dinero Propio de Carlos
+  if (isCarlos && locationId && valor > 0) {
     adjustMoneyLocationBalance(locationId, -valor);
   }
 
@@ -4241,14 +4660,16 @@ function addVehicleExpense(event) {
   document.getElementById('vexp-concepto').value = '';
   document.getElementById('vexp-valor').value = '';
   renderVehicleExpensesModalContent(v);
+  onVehicleExpenseSourceChange();
 }
 
 function removeVehicleExpense(vehId, expId) {
   const v = db.vehicles.find((item) => item.id === vehId);
   if (!v) return;
   const expToRemove = (v.gastos || []).find((g) => g.id === expId);
-  if (expToRemove && expToRemove.locationId && expToRemove.valor) {
-    // Reintegrar el valor a la ubicación de dinero libre al eliminar el gasto
+  const wasCarlos = !expToRemove?.pagadoPor || expToRemove.pagadoPor === 'CARLOS';
+  if (expToRemove && wasCarlos && expToRemove.locationId && expToRemove.valor) {
+    // Reintegrar el valor a la ubicación de dinero libre de Carlos al eliminar el gasto
     adjustMoneyLocationBalance(expToRemove.locationId, Number(expToRemove.valor));
   }
   v.gastos = (v.gastos || []).filter((g) => g.id !== expId);
@@ -4664,18 +5085,28 @@ function printSettlementPDF(vehId) {
     totalAEntregar: fin.capitalTotalCarlosEnVehiculo + fin.miGananciaNeta
   });
 
-  // 2. Fila de Socio Inversionista (si aplica)
-  if ((fin.modalidad === 'INVERSIONISTA' || fin.modalidad === 'COMBINADO') && fin.invPartner) {
-    const capSocioInv = fin.capitalPorSocioMap[fin.invPartner.id] || 0;
-    participantesLiquidacion.push({
-      nombre: fin.invPartner.nombre,
-      rol: 'Socio Inversionista (50/50)',
-      capitalAportado: capSocioInv,
-      pctUtilidad: fin.pctInversionista,
-      utilidadCorrespondiente: fin.pagoInversionista,
-      totalAEntregar: capSocioInv + fin.pagoInversionista
+  // 2. Filas de Socios (soporta financiación compartida múltiple y esquema tradicional)
+  const partnerIdsInVeh = new Set([
+    ...Object.keys(fin.capitalPorSocioMap || {}),
+    ...Object.keys(fin.pctPorSocioMap || {})
+  ]);
+
+  if (partnerIdsInVeh.size > 0) {
+    partnerIdsInVeh.forEach((pid) => {
+      const pObj = db.partners.find((p) => p.id === pid);
+      const capSocio = fin.capitalPorSocioMap[pid] || 0;
+      const pctSocio = fin.pctPorSocioMap[pid] || 0;
+      const ganSocio = fin.gananciaPorSocioMap[pid] || 0;
+      participantesLiquidacion.push({
+        nombre: pObj ? pObj.nombre : 'Socio',
+        rol: pObj && pObj.tipo === 'Inversionista' ? 'Socio Inversionista (Reintegro a Disponible + Ganancia aparte)' : 'Socio de Negocio',
+        capitalAportado: capSocio,
+        pctUtilidad: pctSocio,
+        utilidadCorrespondiente: ganSocio,
+        totalAEntregar: capSocio + ganSocio
+      });
     });
-  } else if (fin.modalidad === 'INVERSIONISTA' && !fin.invPartner) {
+  } else if (fin.modalidad === 'INVERSIONISTA') {
     const capSocioInv = fin.capitalTotalSociosEnVehiculo;
     participantesLiquidacion.push({
       nombre: 'Socio Inversionista',
@@ -4685,35 +5116,18 @@ function printSettlementPDF(vehId) {
       utilidadCorrespondiente: fin.pagoInversionista,
       totalAEntregar: capSocioInv + fin.pagoInversionista
     });
-  }
-
-  // 3. Filas de Socios de Negocio (si aplica)
-  if (fin.modalidad === 'NEGOCIO' || fin.modalidad === 'COMBINADO') {
-    if (fin.negPartners.length > 0) {
-      fin.negPartners.forEach((np) => {
-        const capSocioNeg = fin.capitalPorSocioMap[np.id] || 0;
-        participantesLiquidacion.push({
-          nombre: np.nombre,
-          rol: `Socio de Negocio (1/${fin.numNegocio})`,
-          capitalAportado: capSocioNeg,
-          pctUtilidad: fin.pctPorCadaSocioNegocio,
-          utilidadCorrespondiente: fin.pagoPorCadaSocioNegocio,
-          totalAEntregar: capSocioNeg + fin.pagoPorCadaSocioNegocio
-        });
+  } else if (fin.modalidad === 'NEGOCIO' || fin.modalidad === 'COMBINADO') {
+    const countOtros = Math.max(1, fin.numNegocio - 1);
+    const capCadaUno = fin.capitalTotalSociosEnVehiculo / countOtros;
+    for (let i = 1; i <= countOtros; i++) {
+      participantesLiquidacion.push({
+        nombre: `Socio de Negocio #${i}`,
+        rol: `Socio de Negocio (1/${fin.numNegocio})`,
+        capitalAportado: capCadaUno,
+        pctUtilidad: fin.pctPorCadaSocioNegocio,
+        utilidadCorrespondiente: fin.pagoPorCadaSocioNegocio,
+        totalAEntregar: capCadaUno + fin.pagoPorCadaSocioNegocio
       });
-    } else {
-      const countOtros = Math.max(1, fin.numNegocio - 1);
-      const capCadaUno = fin.capitalTotalSociosEnVehiculo / countOtros;
-      for (let i = 1; i <= countOtros; i++) {
-        participantesLiquidacion.push({
-          nombre: `Socio de Negocio #${i}`,
-          rol: `Socio de Negocio (1/${fin.numNegocio})`,
-          capitalAportado: capCadaUno,
-          pctUtilidad: fin.pctPorCadaSocioNegocio,
-          utilidadCorrespondiente: fin.pagoPorCadaSocioNegocio,
-          totalAEntregar: capCadaUno + fin.pagoPorCadaSocioNegocio
-        });
-      }
     }
   }
 
@@ -4918,8 +5332,16 @@ function printSettlementPDF(vehId) {
 }
 
 // ============================================================================
-// CRUD SOCIOS (HOJA 4)
+// CRUD SOCIOS, CAPITAL BASE GLOBAL Y LIQUIDACIÓN DE GANANCIAS (HOJA 4)
 // ============================================================================
+function onPartnerModalTypeChange() {
+  const tipo = document.getElementById('part-tipo')?.value || 'Inversionista';
+  const groupBase = document.getElementById('group-part-capital-base');
+  if (groupBase) {
+    groupBase.style.display = tipo === 'Inversionista' ? 'flex' : 'none';
+  }
+}
+
 function openPartnerModal(partnerId = null) {
   const form = document.getElementById('form-partner');
   form.reset();
@@ -4931,24 +5353,34 @@ function openPartnerModal(partnerId = null) {
     document.getElementById('part-id').value = p.id;
     document.getElementById('part-nombre').value = p.nombre;
     document.getElementById('part-tipo').value = p.tipo;
+    document.getElementById('part-capital-base').value = p.capitalBase ? formatNumberWithDots(p.capitalBase) : '0';
     document.getElementById('part-telefono').value = String(p.telefono || '').replace(/[^0-9]/g, '');
     document.getElementById('part-documento').value = p.documento ? formatNumberWithDots(parseCurrencyInput(p.documento)) : '';
     document.getElementById('part-notas').value = p.notas || '';
   } else {
     document.getElementById('modal-partner-title').textContent = 'Agregar Socio a la Base de Datos';
     document.getElementById('part-id').value = '';
+    document.getElementById('part-tipo').value = 'Inversionista';
+    document.getElementById('part-capital-base').value = '0';
   }
 
+  onPartnerModalTypeChange();
   document.getElementById('modal-partner').classList.add('open');
 }
 
 function savePartner(event) {
   event.preventDefault();
   const id = document.getElementById('part-id').value;
+  const tipo = document.getElementById('part-tipo').value;
+  const existing = id ? db.partners.find((p) => p.id === id) : null;
+
   const payload = {
     id: id || 'soc-' + Date.now(),
     nombre: document.getElementById('part-nombre').value.trim(),
-    tipo: document.getElementById('part-tipo').value,
+    tipo: tipo,
+    capitalBase: tipo === 'Inversionista' ? parseCurrencyInput(document.getElementById('part-capital-base')?.value) : 0,
+    capitalMovements: existing && Array.isArray(existing.capitalMovements) ? existing.capitalMovements : [],
+    profitPayments: existing && Array.isArray(existing.profitPayments) ? existing.profitPayments : [],
     telefono: document.getElementById('part-telefono').value.trim(),
     documento: document.getElementById('part-documento').value.trim(),
     notas: document.getElementById('part-notas').value.trim()
@@ -4963,6 +5395,183 @@ function savePartner(event) {
 
   saveDB();
   closeModal('modal-partner');
+}
+
+function openPartnerCapitalMovModal(partnerId) {
+  const p = db.partners.find((item) => item.id === partnerId);
+  if (!p) return;
+
+  document.getElementById('pcap-partner-id').value = p.id;
+  document.getElementById('modal-pcap-title').textContent = `💰 Capital Base: ${p.nombre}`;
+  document.getElementById('modal-pcap-subtitle').textContent = 'Registra aumentos o retiros manuales sobre su Capital Base Total';
+  document.getElementById('pcap-fecha').value = getTodayISO();
+  document.getElementById('pcap-monto').value = '';
+  document.getElementById('pcap-nota').value = '';
+  document.getElementById('pcap-tipo').value = 'AUMENTO';
+
+  renderPartnerCapitalMovModalContent(p);
+  document.getElementById('modal-partner-capital-mov').classList.add('open');
+}
+
+function renderPartnerCapitalMovModalContent(p) {
+  const cap = calculateGlobalCapitalBreakdown();
+  const st = cap.socioStats[p.id] || { capitalBase: 0, capitalActivo: 0, capitalDisponible: 0 };
+
+  const kpisEl = document.getElementById('pcap-summary-kpis');
+  if (kpisEl) {
+    kpisEl.innerHTML = `
+      <div class="kpi-card">
+        <div class="kpi-label"><span>Capital Base Total</span></div>
+        <div class="kpi-value" style="font-size:17px;">${formatCOP(st.capitalBase)}</div>
+      </div>
+      <div class="kpi-card kpi-amber">
+        <div class="kpi-label"><span>Invertido Activo</span></div>
+        <div class="kpi-value" style="font-size:17px; color:#fcd34d;">${formatCOP(st.capitalActivo)}</div>
+      </div>
+      <div class="kpi-card kpi-green">
+        <div class="kpi-label"><span>Capital Disponible</span></div>
+        <div class="kpi-value" style="font-size:17px; color:${st.capitalDisponible >= 0 ? '#34d399' : '#f87171'};">${formatCOP(st.capitalDisponible)}</div>
+      </div>
+    `;
+  }
+
+  const tbody = document.getElementById('pcap-history-tbody');
+  const movs = Array.isArray(p.capitalMovements) ? p.capitalMovements : [];
+  if (tbody) {
+    if (movs.length === 0) {
+      tbody.innerHTML = `<tr><td colspan="4" style="text-align:center; padding:16px; color:var(--text-muted);">Sin aumentos ni retiros registrados aún.</td></tr>`;
+    } else {
+      tbody.innerHTML = movs
+        .map((m) => `
+          <tr>
+            <td>${escapeHtml(m.fecha || '-')}</td>
+            <td>
+              <span class="badge ${m.tipo === 'AUMENTO' ? 'status-vendido' : 'status-alistamiento'}">
+                ${m.tipo === 'AUMENTO' ? '➕ Aumento' : '➖ Retiro'}
+              </span>
+            </td>
+            <td style="font-weight:700; color:${m.tipo === 'AUMENTO' ? '#34d399' : '#f87171'};">
+              ${m.tipo === 'AUMENTO' ? '+' : '-'} ${formatCOP(m.monto)}
+            </td>
+            <td style="font-size:12px; color:#cbd5e1;">${escapeHtml(m.nota || '-')}</td>
+          </tr>
+        `)
+        .join('');
+    }
+  }
+}
+
+function savePartnerCapitalMovement(event) {
+  event.preventDefault();
+  const partnerId = document.getElementById('pcap-partner-id').value;
+  const p = db.partners.find((item) => item.id === partnerId);
+  if (!p) return;
+
+  const tipo = document.getElementById('pcap-tipo').value;
+  const monto = parseCurrencyInput(document.getElementById('pcap-monto').value);
+  const fecha = document.getElementById('pcap-fecha').value || getTodayISO();
+  const nota = document.getElementById('pcap-nota').value.trim();
+  if (monto <= 0) return;
+
+  const currentBase = Number(p.capitalBase) || 0;
+  p.capitalBase = tipo === 'AUMENTO' ? currentBase + monto : Math.max(0, currentBase - monto);
+  if (!Array.isArray(p.capitalMovements)) p.capitalMovements = [];
+  p.capitalMovements.unshift({
+    id: 'cmov-' + Date.now(),
+    fecha,
+    tipo,
+    monto,
+    nota
+  });
+
+  saveDB();
+  document.getElementById('pcap-monto').value = '';
+  document.getElementById('pcap-nota').value = '';
+  renderPartnerCapitalMovModalContent(p);
+}
+
+function openPartnerProfitPayModal(partnerId) {
+  const p = db.partners.find((item) => item.id === partnerId);
+  if (!p) return;
+
+  const cap = calculateGlobalCapitalBreakdown();
+  const st = cap.socioStats[p.id] || { gananciasPorPagar: 0 };
+
+  document.getElementById('ppay-partner-id').value = p.id;
+  document.getElementById('modal-ppay-title').textContent = `💸 Ganancias por Pagar: ${p.nombre}`;
+  document.getElementById('modal-ppay-subtitle').textContent = 'Liquida las ganancias pendientes sin tocar su Capital Base';
+  document.getElementById('ppay-fecha').value = getTodayISO();
+  document.getElementById('ppay-monto').value = st.gananciasPorPagar > 0 ? formatNumberWithDots(Math.round(st.gananciasPorPagar)) : '';
+  document.getElementById('ppay-nota').value = '';
+
+  renderPartnerProfitPayModalContent(p);
+  document.getElementById('modal-partner-profit-pay').classList.add('open');
+}
+
+function renderPartnerProfitPayModalContent(p) {
+  const cap = calculateGlobalCapitalBreakdown();
+  const st = cap.socioStats[p.id] || { gananciaAcumuladaVendidos: 0, gananciasPagadas: 0, gananciasPorPagar: 0 };
+
+  const kpisEl = document.getElementById('ppay-summary-kpis');
+  if (kpisEl) {
+    kpisEl.innerHTML = `
+      <div class="kpi-card">
+        <div class="kpi-label"><span>Ganancia Acumulada</span></div>
+        <div class="kpi-value" style="font-size:17px;">${formatCOP(st.gananciaAcumuladaVendidos)}</div>
+      </div>
+      <div class="kpi-card kpi-purple">
+        <div class="kpi-label"><span>Ya Pagado (Histórico)</span></div>
+        <div class="kpi-value" style="font-size:17px; color:#c4b5fd;">${formatCOP(st.gananciasPagadas)}</div>
+      </div>
+      <div class="kpi-card kpi-green">
+        <div class="kpi-label"><span>Pendiente por Pagar</span></div>
+        <div class="kpi-value" style="font-size:17px; color:${st.gananciasPorPagar > 0 ? '#34d399' : '#94a3b8'};">${formatCOP(st.gananciasPorPagar)}</div>
+      </div>
+    `;
+  }
+
+  const tbody = document.getElementById('ppay-history-tbody');
+  const pays = Array.isArray(p.profitPayments) ? p.profitPayments : [];
+  if (tbody) {
+    if (pays.length === 0) {
+      tbody.innerHTML = `<tr><td colspan="3" style="text-align:center; padding:16px; color:var(--text-muted);">Aún no hay pagos de ganancias registrados para este socio.</td></tr>`;
+    } else {
+      tbody.innerHTML = pays
+        .map((pay) => `
+          <tr>
+            <td>${escapeHtml(pay.fecha || '-')}</td>
+            <td style="font-weight:700; color:#34d399;">${formatCOP(pay.monto)}</td>
+            <td style="font-size:12px; color:#cbd5e1;">${escapeHtml(pay.nota || '-')}</td>
+          </tr>
+        `)
+        .join('');
+    }
+  }
+}
+
+function savePartnerProfitPayment(event) {
+  event.preventDefault();
+  const partnerId = document.getElementById('ppay-partner-id').value;
+  const p = db.partners.find((item) => item.id === partnerId);
+  if (!p) return;
+
+  const monto = parseCurrencyInput(document.getElementById('ppay-monto').value);
+  const fecha = document.getElementById('ppay-fecha').value || getTodayISO();
+  const nota = document.getElementById('ppay-nota').value.trim();
+  if (monto <= 0) return;
+
+  if (!Array.isArray(p.profitPayments)) p.profitPayments = [];
+  p.profitPayments.unshift({
+    id: 'ppay-' + Date.now(),
+    fecha,
+    monto,
+    nota: nota || 'Liquidación de ganancias'
+  });
+
+  saveDB();
+  document.getElementById('ppay-monto').value = '';
+  document.getElementById('ppay-nota').value = '';
+  renderPartnerProfitPayModalContent(p);
 }
 
 function deletePartner(partnerId) {
